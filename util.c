@@ -52,32 +52,34 @@ unsigned char *ReadWholeFile(char *path, int *size)
     return buffer;
 }
 
+// TODO: change read and write functions to do either BE or LE based on an input parameter
+// Then give a little endian option to each file type
 __uint8_t ReadU8(const unsigned char *ptr, const size_t offset) {
     return ptr[offset];
 }
 
 __uint16_t ReadU16_BE(const unsigned char *ptr, const size_t offset) {
-    return (ptr[offset] << 8) | ptr[offset + 1];
-}
-
-__uint16_t ReadU16_LE(const unsigned char *ptr, const size_t offset) {
     return (ptr[offset + 1] << 8) | ptr[offset];
 }
 
-__uint32_t ReadU24_BE(const unsigned char *ptr, const size_t offset) {
-    return (ptr[offset] << 16) | (ptr[offset + 1] << 8) | ptr[offset + 2];
+__uint16_t ReadU16_LE(const unsigned char *ptr, const size_t offset) {
+    return (ptr[offset] << 8) | ptr[offset + 1];
 }
 
-__uint32_t ReadU24_LE(const unsigned char *ptr, const size_t offset) {
+__uint32_t ReadU24_BE(const unsigned char *ptr, const size_t offset) {
     return (ptr[offset + 2] << 16) | (ptr[offset + 1] << 8) | ptr[offset];
 }
 
+__uint32_t ReadU24_LE(const unsigned char *ptr, const size_t offset) {
+    return (ptr[offset] << 16) | (ptr[offset + 1] << 8) | ptr[offset + 2];
+}
+
 __uint32_t ReadU32_BE(const unsigned char *ptr, const size_t offset) {
-    return (ptr[offset] << 24) | (ptr[offset + 1] << 16) | (ptr[offset + 2] << 8) | ptr[offset + 3];
+    return (ptr[offset + 3] << 24) | (ptr[offset + 2] << 16) | (ptr[offset + 1] << 8) | ptr[offset];
 }
 
 __uint32_t ReadU32_LE(const unsigned char *ptr, const size_t offset) {
-    return (ptr[offset + 3] << 24) | (ptr[offset + 2] << 16) | (ptr[offset + 1] << 8) | ptr[offset];
+    return (ptr[offset] << 24) | (ptr[offset + 1] << 16) | (ptr[offset + 2] << 8) | ptr[offset + 3];
 }
 
 __uint32_t ReadVariableLength(const unsigned char *ptr, size_t *offset) {

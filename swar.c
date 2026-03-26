@@ -24,12 +24,31 @@ static void PackSwarFile(struct DataPackage *swarPackage, unsigned char *data, c
     swarPackage->count++;
 }
 
+void ConvertSwavToSwar(int argc, char **argv)
+{
+    printf("%d\t%s\n", argc, argv[2]);
+}
+
+void ConvertSwarToSwav(int argc, char **argv)
+{
+    printf("%d\t%s\n", argc, argv[2]);
+}
+
 // TODO:
 // - make dir travel a function so it can be made recursive for subfolders
 // - add naix functionality
 // - - will require more robus input parsing
-void MakeSwar(char *inputPath, char *outputPath, char *orderPath, bool naix)
+void ConvertPathToSwar(int argc, char **argv)
 {
+    char *orderPath = NULL;
+    if (argc > 3)
+    {
+        orderPath = argv[3];
+    }
+    char *inputPath = argv[1];
+    char *outputPath = argv[2];
+    bool naix = false;
+
     DIR *dir = opendir(inputPath);
     if (dir == NULL) {
         FATAL_ERROR("could not open DIRECTORY “%s”: %s\n", inputPath, strerror(errno));
@@ -187,8 +206,16 @@ void MakeSwar(char *inputPath, char *outputPath, char *orderPath, bool naix)
     fclose(outFile);
 }
 
-void SplitSwar(char *inputPath, char *outputPath, char *orderPath)
+void ConvertSwarToPath(int argc, char **argv)
 {
+    char *orderPath = NULL;
+    if (argc > 3)
+    {
+        orderPath = argv[3];
+    }
+    char *inputPath = argv[1];
+    char *outputPath = argv[2];
+
     // open input file
     int swarSize;
     unsigned char *swarFile = ReadWholeFile(inputPath, &swarSize);
@@ -196,7 +223,7 @@ void SplitSwar(char *inputPath, char *outputPath, char *orderPath)
     {
         FATAL_ERROR("Not a valid swar file.\n");
     }
-    uint32_t numSwavs = ReadU32_LE(swarFile, 0x38);
+    uint32_t numSwavs = ReadU32_BE(swarFile, 0x38);
 
     // generate list of output file names
     struct StrVec *fileNames = StrVec_New(5000); // arbitary allocation
@@ -262,13 +289,13 @@ void SplitSwar(char *inputPath, char *outputPath, char *orderPath)
     {
         FILE *outFile = fopen(fileNames->s[i], "wb");
         if (outFile == NULL)
-            FATAL_ERROR("Failed to open \"%s\" for writing.\n", outputPath);
+            FATAL_ERROR("Failed to open \"%s\" for writing.\n", fileNames->s[i]);
         free(fileNames->s[i]);
 
         // calc filesize
-        uint32_t swavAddress = ReadU32_LE(swarFile, pointerAddress);
+        uint32_t swavAddress = ReadU32_BE(swarFile, pointerAddress);
         pointerAddress += 4;
-        uint32_t swavSize = ReadU32_LE(swarFile, pointerAddress) - swavAddress;
+        uint32_t swavSize = ReadU32_BE(swarFile, pointerAddress) - swavAddress;
         if (i == numSwavs - 1)
         {
             swavSize = swarSize - swavAddress;
@@ -283,4 +310,14 @@ void SplitSwar(char *inputPath, char *outputPath, char *orderPath)
     }
     free(fileNames);
     free(swarFile);
+}
+
+void ConvertWavToSwar(int argc, char **argv)
+{
+    printf("%d\t%s\n", argc, argv[2]);
+}
+
+void ConvertSwarToWav(int argc, char **argv)
+{
+    printf("%d\t%s\n", argc, argv[2]);
 }

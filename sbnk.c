@@ -85,8 +85,15 @@ static void PackSbnkFile(struct SbnkPackage *sbnkPackage, unsigned char *data, c
     sbnkPackage->count++;
 }
 
-void SbnkFromTxt(char *inputPath, char *outputPath)
+void ConvertTxtToSbnk(int argc, char **argv)
 {
+    if (argc < 3)
+    {
+        FATAL_ERROR("Insufficient arguments\n");
+    }
+    char *inputPath = argv[1];
+    char *outputPath = argv[2];
+
     // open input file
     char line[1024];
     FILE *txtFile = fopen(inputPath,"r");
@@ -348,8 +355,15 @@ int InstrumentAddressCmp_q(const void *i1, const void *i2)
     return diff;
 }
 
-void TxtFromSbnk(char *inputPath, char *outputPath)
+void ConvertSbnkToTxt(int argc, char **argv)
 {
+    if (argc < 3)
+    {
+        FATAL_ERROR("Insufficient arguments\n");
+    }
+    char *inputPath = argv[1];
+    char *outputPath = argv[2];
+
     // open input file
     int sbnkSize;
     unsigned char *sbnkFile = ReadWholeFile(inputPath, &sbnkSize);
@@ -357,7 +371,7 @@ void TxtFromSbnk(char *inputPath, char *outputPath)
     {
         FATAL_ERROR("Not a valid sbnk file.\n");
     }
-    uint32_t numInstruments = ReadU32_LE(sbnkFile, 0x38);
+    uint32_t numInstruments = ReadU32_BE(sbnkFile, 0x38);
 
     // collect data elements
     struct InstrumentStream *instrumentStream = malloc(sizeof(struct InstrumentStream) * numInstruments);
@@ -365,7 +379,7 @@ void TxtFromSbnk(char *inputPath, char *outputPath)
     {
         instrumentStream[i].headerIndex = i;
         instrumentStream[i].instrumentsType = ReadU8(sbnkFile, 0x3C + i * 4);
-        instrumentStream[i].address = ReadU16_LE(sbnkFile, 0x3D + i * 4);
+        instrumentStream[i].address = ReadU16_BE(sbnkFile, 0x3D + i * 4);
     }
 
     // sort by addresses
@@ -427,8 +441,8 @@ void TxtFromSbnk(char *inputPath, char *outputPath)
             snprintf(line, 58, "%d, %s, %d, %d, %d, %d, %d, %d, %d, %d\r\n",
                 headerIndex,
                 instrumentsTypeStrings[instrumentType],
-                ReadU16_LE(sbnkFile, address),
-                ReadU16_LE(sbnkFile, address + 2),
+                ReadU16_BE(sbnkFile, address),
+                ReadU16_BE(sbnkFile, address + 2),
                 ReadU8(sbnkFile, address + 4),
                 ReadU8(sbnkFile, address + 5),
                 ReadU8(sbnkFile, address + 6),
@@ -475,9 +489,9 @@ void TxtFromSbnk(char *inputPath, char *outputPath)
         {
             line = malloc(53);
             snprintf(line, 53, "\t%d, %d, %d, %d, %d, %d, %d, %d, %d\r\n",
-                ReadU16_LE(sbnkFile, address),
-                ReadU16_LE(sbnkFile, address + 2),
-                ReadU16_LE(sbnkFile, address + 4),
+                ReadU16_BE(sbnkFile, address),
+                ReadU16_BE(sbnkFile, address + 2),
+                ReadU16_BE(sbnkFile, address + 4),
                 ReadU8(sbnkFile, address + 6),
                 ReadU8(sbnkFile, address + 7),
                 ReadU8(sbnkFile, address + 8),

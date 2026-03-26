@@ -15,7 +15,7 @@ void ReadSseq(char *inputPath, char *outputPath)
         FATAL_ERROR("Not a valid sseq file.\n");
     }
 
-    __uint16_t dataAddress = ReadU16_LE(sseq, 12);
+    __uint16_t dataAddress = ReadU16_BE(sseq, 12);
     if (memcmp(sseq + dataAddress, "DATA", 4) != 0)
     {
         FATAL_ERROR("Missing DATA chunk.\n");
@@ -26,7 +26,7 @@ void ReadSseq(char *inputPath, char *outputPath)
     if (ReadU8(sseq, offset) == SSEQ_COMMAND_NUM_TRACKS)
     {
         offset += 1;
-        numTracks = ReadU16_LE(sseq, offset);
+        numTracks = ReadU16_BE(sseq, offset);
         offset += 2;
     }
     __uint32_t trackAddresses[numTracks - 1];
@@ -45,7 +45,7 @@ void ReadSseq(char *inputPath, char *outputPath)
             FATAL_ERROR("Track %d assigned twice.\n", trackNumber);
         }
         offset += 1;
-        trackAddresses[trackNumber - 1] = ReadU24_LE(sseq, offset);
+        trackAddresses[trackNumber - 1] = ReadU24_BE(sseq, offset);
         offset += 3;
     }
 
@@ -91,7 +91,7 @@ void ReadSseq(char *inputPath, char *outputPath)
                         offset += 1;
                         break;
                     case SSEQ_COMMAND_TEMPO:
-                        printf("TEMPO %x\n", ReadU16_LE(sseq, offset));
+                        printf("TEMPO %x\n", ReadU16_BE(sseq, offset));
                         offset += 2;
                         break;
                     case SSEQ_COMMAND_END:

@@ -9,29 +9,8 @@ struct CommandHandler
 {
     const char *inputFileExtension;
     const char *outputFileExtension;
-    void(*function)(char *inputPath, char *outputPath, int argc, char **argv);
+    void(*function)(int argc, char **argv);
 };
-
-static void UnknownConversion(char *UNUSED, char *UNUSED, int UNUSED, char **UNUSED);
-static void ConvertSseqToMidi(char *inputPath, char *outputPath, int UNUSED, char **UNUSED);
-static void ConvertWavToSwav(char *inputPath, char *outputPath, int argc, char **argv);
-static void ConvertSwavToWav(char *inputPath, char *outputPath, int argc, char **argv);
-static void ConvertTxtToSbnk(char *inputPath, char *outputPath, int argc, char **argv);
-
-static void UnknownConversion(char *UNUSED, char *UNUSED, int UNUSED, char **UNUSED)
-{
-    FATAL_ERROR("Not implemented yet\n");
-}
-
-struct SSEQTrackData {
-    unsigned char *sequence;
-    int sequenceSize;
-} SSEQTrackData;
-
-struct SSEQData {
-    unsigned char *data;
-    struct SSEQTrackData track[16];
-} SSEQData;
 
 enum MidiFormat {
     SINGLE_MULIT_CHANNEL = 0,
@@ -91,8 +70,11 @@ enum MidiEvents {
 #define MIDI_META_TEMPO 0x51
 #define MIDI_META_TEXT 0x01
 
-static void ConvertMidiToSseq(char *inputPath, char *outputPath, int UNUSED, char **UNUSED)
+static void ConvertMidiToSseq(int UNUSED, char **argv)
 {
+    char *inputPath = argv[1];
+    char *outputPath = argv[2];
+
     int fileSize;
     unsigned char *data = ReadWholeFile(inputPath, &fileSize);
     if (memcmp(data, "MThd", 4) != 0)
@@ -645,78 +627,12 @@ static void ConvertMidiToSseq(char *inputPath, char *outputPath, int UNUSED, cha
     free(output);
 }
 
-static void ConvertSseqToMidi(char *inputPath, char *outputPath, int UNUSED, char **UNUSED)
+static void ConvertSseqToMidi(int UNUSED, char **argv)
 {
-    ReadSseq(inputPath, outputPath);
+    ReadSseq(argv[1], argv[2]);
 }
 
-static void ConvertWavToSwav(char *inputPath, char *outputPath, int UNUSED, char **UNUSED)
-{
-    ReadWav(inputPath, outputPath, SWAV_SIGNED_PCM8);
-}
 
-static void ConvertSwavToWav(char *inputPath, char *outputPath, int UNUSED, char **UNUSED)
-{
-    ReadSwav(inputPath, outputPath, WAV_UNSIGNED_PCM8);
-}
-
-static void ConvertTxtToSbnk(char *inputPath, char *outputPath, int UNUSED, char **UNUSED)
-{
-    SbnkFromTxt(inputPath, outputPath);
-}
-
-static void ConvertSbnkToTxt(char *inputPath, char *outputPath, int UNUSED, char **UNUSED)
-{
-    TxtFromSbnk(inputPath, outputPath);
-}
-
-static void ConvertSwavToSwar(char *inputPath, char *outputPath, int argc, char **argv)
-{
-    UnknownConversion(inputPath, outputPath, argc, argv);
-}
-
-static void ConvertSwarToSwav(char *inputPath, char *outputPath, int argc, char **argv)
-{
-    UnknownConversion(inputPath, outputPath, argc, argv);
-}
-
-static void ConvertPathToSwar(char *inputPath, char *outputPath, int argc, char **argv)
-{
-    char *orderPath = NULL;
-    if (argc > 3)
-    {
-        orderPath = argv[3];
-    }
-    MakeSwar(inputPath, outputPath, orderPath, false);
-}
-
-static void ConvertSwarToPath(char *inputPath, char *outputPath, int argc, char **argv)
-{
-    char *orderPath = NULL;
-    if (argc > 3)
-    {
-        orderPath = argv[3];
-    }
-    SplitSwar(inputPath, outputPath, orderPath);
-}
-
-static void ConvertPathToSdat(char *inputPath, char *outputPath, int argc, char **argv)
-{
-    if (argc < 4)
-    {
-        FATAL_ERROR("Insufficient arguments\n");
-    }
-    SdatFromDir(inputPath, outputPath, argv[3]);
-}
-
-static void ConvertSdatToPath(char *inputPath, char *outputPath, int UNUSED, char **UNUSED)
-{
-    DirFromSdat(inputPath, outputPath);
-}
-
-// TODO:
-// - refactor all the useless functions above
-// - - just send argc argv to the appropriate functions
 int main(int argc, char **argv)
 {
     if (argc < 3) FATAL_ERROR("Usage: nitrosfx INPUT_PATH OUTPUT_PATH [options...]\n");
@@ -732,8 +648,8 @@ int main(int argc, char **argv)
         {"sbnk",  "txt", ConvertSbnkToTxt},
         {"swav", "swar", ConvertSwavToSwar}, // TODO
         {"swar", "swav", ConvertSwarToSwav}, // TODO
-        {"wav", "swar",  UnknownConversion}, // TODO
-        {"swar", "wav",  UnknownConversion}, // TODO
+        {"wav", "swar",  ConvertWavToSwar}, // TODO
+        {"swar", "wav",  ConvertSwarToWav}, // TODO
         {NULL,   "swar", ConvertPathToSwar}, // multiple swav from dir
         {"swar",   NULL, ConvertSwarToPath}, // multiple swav to dir
         {NULL,   "sdat", ConvertPathToSdat}, // TODO
@@ -754,7 +670,7 @@ int main(int argc, char **argv)
         if (((handlers[i].inputFileExtension == NULL) || (strcmp(handlers[i].inputFileExtension, inputFileExtension) == 0)) &&
             ((handlers[i].outputFileExtension == NULL) || (strcmp(handlers[i].outputFileExtension, outputFileExtension) == 0)))
         {
-            handlers[i].function(inputPath, outputPath, argc, argv);
+            handlers[i].function(argc, argv);
             return 0;
         }
     }

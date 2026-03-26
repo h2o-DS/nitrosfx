@@ -3,7 +3,11 @@
 
 #include <stdbool.h>
 
-void MakeSwar(char *inputPath, char *outputPath, char *orderPath, bool naix);
-void SplitSwar(char *inputPath, char *outputPath, char *orderPath);
+void ConvertSwavToSwar(int argc, char **argv);
+void ConvertSwarToSwav(int argc, char **argv);
+void ConvertPathToSwar(int argc, char **argv);
+void ConvertSwarToPath(int argc, char **argv);
+void ConvertWavToSwar(int argc, char **argv);
+void ConvertSwarToWav(int argc, char **argv);
 
 #endif //SWAR_H

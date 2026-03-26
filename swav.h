@@ -16,7 +16,7 @@ enum WAV_ENCODE {
     WAV_IMA_ADPCM,
 };
 
-void ReadSwav(char *inputPath, char *outputPath, enum WAV_ENCODE wavEncodeType);
-void ReadWav(char *inputPath, char *outputPath, enum SWAV_ENCODE swavEncodeType);
+void ConvertWavToSwav(int argc, char **argv);
+void ConvertSwavToWav(int argc, char **argv);
 
 #endif //SWAV_H

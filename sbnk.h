@@ -1,7 +1,7 @@
 #ifndef SBNK_H
 #define SBNK_H
 
-void SbnkFromTxt(char *inputPath, char *outputPath);
-void TxtFromSbnk(char *inputPath, char *outputPath);
+void ConvertTxtToSbnk(int argc, char **argv);
+void ConvertSbnkToTxt(int argc, char **argv);
 
 #endif //SBNK_H

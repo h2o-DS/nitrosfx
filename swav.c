@@ -4,8 +4,17 @@
 
 #include "util.h"
 
-void ReadSwav(char *inputPath, char *outputPath, enum WAV_ENCODE wavEncodeType)
+void ConvertWavToSwav(int argc, char **argv)
 {
+    if (argc < 3)
+    {
+        FATAL_ERROR("Insufficient arguments\n");
+    }
+    char *inputPath = argv[1];
+    char *outputPath = argv[2];
+
+    int wavEncodeType = WAV_UNSIGNED_PCM8;
+
     int fileSize;
     unsigned char *swav = ReadWholeFile(inputPath, &fileSize);
     if (memcmp(swav, "SWAV", 4) != 0)
@@ -13,7 +22,7 @@ void ReadSwav(char *inputPath, char *outputPath, enum WAV_ENCODE wavEncodeType)
         FATAL_ERROR("Not a valid swav file.\n");
     }
 
-    __uint16_t dataAddress = ReadU16_LE(swav, 12);
+    __uint16_t dataAddress = ReadU16_BE(swav, 12);
     if (memcmp(swav + dataAddress, "DATA", 4) != 0)
     {
         FATAL_ERROR("Missing DATA chunk.\n");
@@ -26,13 +35,13 @@ void ReadSwav(char *inputPath, char *outputPath, enum WAV_ENCODE wavEncodeType)
     offset += 1;
     //__uint8_t loop = ReadU8(swav, offset);
     offset += 1;
-    __uint16_t samplingRate = ReadU16_LE(swav, offset);
+    __uint16_t samplingRate = ReadU16_BE(swav, offset);
     offset += 2;
-    //__uint16_t clockTime = ReadU16_LE(swav, offset);
+    //__uint16_t clockTime = ReadU16_BE(swav, offset);
     offset += 2;
-    //__uint16_t loopAddress = ReadU16_LE(swav, offset);
+    //__uint16_t loopAddress = ReadU16_BE(swav, offset);
     offset += 2;
-    //__uint16_t loopLength = ReadU32_LE(swav, offset);
+    //__uint16_t loopLength = ReadU32_BE(swav, offset);
     offset += 4;
     // rest is data stream
 
@@ -124,9 +133,16 @@ void ReadSwav(char *inputPath, char *outputPath, enum WAV_ENCODE wavEncodeType)
     fclose(outFile);
 }
 
-void ReadWav(char *inputPath, char *outputPath, enum SWAV_ENCODE swavEncodeType)
+void ConvertSwavToWav(int argc, char **argv)
 {
-    printf("%s\t%s\t%d\n", inputPath, outputPath, swavEncodeType);
+    if (argc < 3)
+    {
+        FATAL_ERROR("Insufficient arguments\n");
+    }
+    char *inputPath = argv[1];
+    //char *outputPath = argv[2];
+
+    int swavEncodeType = SWAV_SIGNED_PCM8;
 
     int fileSize;
     unsigned char *wav = ReadWholeFile(inputPath, &fileSize);
@@ -150,23 +166,23 @@ void ReadWav(char *inputPath, char *outputPath, enum SWAV_ENCODE swavEncodeType)
     // fix above to jump to WAVE, fmt , and data chunks
 
     size_t offset = 0x14;
-    //__uint32_t chunkSize = ReadU32_LE(wav, offset);
+    //__uint32_t chunkSize = ReadU32_BE(wav, offset);
     offset += 4;
-    __uint16_t formatCode = ReadU16_LE(wav, offset);
+    __uint16_t formatCode = ReadU16_BE(wav, offset);
     offset += 2;
-    __uint16_t numChannels = ReadU16_LE(wav, offset);
+    __uint16_t numChannels = ReadU16_BE(wav, offset);
     offset += 2;
     if (numChannels > 1)
     {
         FATAL_ERROR("Only mono files are supported.\n");
     }
-    //__uint32_t samplingRate = ReadU32_LE(wav, offset);
+    //__uint32_t samplingRate = ReadU32_BE(wav, offset);
     offset += 4;
-    //__uint32_t bytePerSecond = ReadU32_LE(wav, offset);
+    //__uint32_t bytePerSecond = ReadU32_BE(wav, offset);
     offset += 4;
-    //__uint16_t blockAlign = ReadU16_LE(wav, offset);
+    //__uint16_t blockAlign = ReadU16_BE(wav, offset);
     offset += 2;
-    __uint16_t bitsPerSample = ReadU16_LE(wav, offset);
+    __uint16_t bitsPerSample = ReadU16_BE(wav, offset);
     offset += 2;
 
     char wavEncodeType = -1;
@@ -203,7 +219,7 @@ void ReadWav(char *inputPath, char *outputPath, enum SWAV_ENCODE swavEncodeType)
         FATAL_ERROR("Missing data chunk.\n");
     }
     offset += 4;
-    //chunkSize = ReadU32_LE(wav, offset);
+    //chunkSize = ReadU32_BE(wav, offset);
     offset += 4;
 
     //size_t dataOffset = 0;
