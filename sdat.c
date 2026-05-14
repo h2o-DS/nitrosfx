@@ -238,6 +238,8 @@ static char* GetInfoName(struct InfoPackage *package, uint32_t index)
     return info->name;
 }
 
+// TODO: make variable checking more robust
+// Check that json file type is correct before using
 void ConvertPathToSdat(int argc, char **argv)
 {
     // process args
@@ -252,7 +254,7 @@ void ConvertPathToSdat(int argc, char **argv)
     int naix = 0;
 
     // optional args
-    for (int i = 0; i < argc; i++)
+    for (int i = 4; i < argc; i++)
     {
         if (strcmp(argv[i], "-s") == 0)
         {
@@ -465,27 +467,27 @@ void ConvertPathToSdat(int argc, char **argv)
     uint32_t offset = 0x0E;
     if (symb)
     {
-        WriteU16(sdatHeader, offset, 4);
-        WriteU32(sdatHeader, offset+2, 0x40);
-        WriteU32(sdatHeader, offset+6, symbBlockSize);
+        WriteU16_BE(sdatHeader, offset, 4);
+        WriteU32_BE(sdatHeader, offset+2, 0x40);
+        WriteU32_BE(sdatHeader, offset+6, symbBlockSize);
         offset = 0x18;
     }
     else
     {
-        WriteU16(sdatHeader, offset, 3);
+        WriteU16_BE(sdatHeader, offset, 3);
         offset = 0x10;
         symbBlockSize = 0;
     }
-    WriteU32(sdatHeader, offset, 0x40 + symbBlockSize);
-    WriteU32(sdatHeader, offset+4, infoBlockSize);
-    WriteU32(sdatHeader, offset+8, 0x40 + symbBlockSize + infoBlockSize);
-    WriteU32(sdatHeader, offset+12, fatBlockSize);
+    WriteU32_BE(sdatHeader, offset, 0x40 + symbBlockSize);
+    WriteU32_BE(sdatHeader, offset+4, infoBlockSize);
+    WriteU32_BE(sdatHeader, offset+8, 0x40 + symbBlockSize + infoBlockSize);
+    WriteU32_BE(sdatHeader, offset+12, fatBlockSize);
     uint32_t fileOffset = 0x40 + symbBlockSize + infoBlockSize + fatBlockSize;
-    WriteU32(sdatHeader, offset+16, fileOffset);
+    WriteU32_BE(sdatHeader, offset+16, fileOffset);
     filePackage->size += PADDINGSIZE(fileOffset, 0x20);
-    WriteU32(sdatHeader, offset+20, filePackage->size);
+    WriteU32_BE(sdatHeader, offset+20, filePackage->size);
     uint32_t sdatSize = fileOffset + filePackage->size;
-    WriteU32(sdatHeader, 0x08, sdatSize);
+    WriteU32_BE(sdatHeader, 0x08, sdatSize);
 
     FILE *outFile = fopen(outputPath, "wb");
     if (outFile == NULL)
@@ -503,12 +505,12 @@ void ConvertPathToSdat(int argc, char **argv)
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
         };
-        WriteU32(symbHeader, 0x04, symbBlockSize);
+        WriteU32_BE(symbHeader, 0x04, symbBlockSize);
         // name table addresses
         offset = 0x40;
         for (int i = 0; i < NUM_DATATYPES; i++)
         {
-            WriteU32(symbHeader, 0x08 + 4*i, offset);
+            WriteU32_BE(symbHeader, 0x08 + 4*i, offset);
             offset += 4 + infoPackages[i]->count * 4;
         }
         fwrite(symbHeader, 1, 0x40, outFile);
@@ -516,17 +518,17 @@ void ConvertPathToSdat(int argc, char **argv)
         // name tables
         for (int i = 0; i < NUM_DATATYPES; i++)
         {
-            WriteU32(u32Buffer, 0, infoPackages[i]->count);
+            WriteU32_BE(u32Buffer, 0, infoPackages[i]->count);
             fwrite(u32Buffer, 1, 4, outFile);
             for (struct InfoStream *j = infoPackages[i]->head; j != NULL; j = j->next)
             {
                 if (strcmp(j->name, "") == 0)
                 {
-                    WriteU32(u32Buffer, 0, 0);
+                    WriteU32_BE(u32Buffer, 0, 0);
                 }
                 else
                 {
-                    WriteU32(u32Buffer, 0, offset);
+                    WriteU32_BE(u32Buffer, 0, offset);
                     offset += strlen(j->name) + 1;
                 }
                 fwrite(u32Buffer, 1, 4, outFile);
@@ -543,7 +545,7 @@ void ConvertPathToSdat(int argc, char **argv)
                 }
             }
         }
-        WriteU32(u32Buffer, 0, 0);
+        WriteU32_BE(u32Buffer, 0, 0);
         fwrite(u32Buffer, 1, symbPad, outFile);
     }
 
@@ -555,12 +557,12 @@ void ConvertPathToSdat(int argc, char **argv)
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
     };
-    WriteU32(infoHeader, 0x04, infoBlockSize);
+    WriteU32_BE(infoHeader, 0x04, infoBlockSize);
     // info table addresses
     offset = 0x40;
     for (int i = 0; i < NUM_DATATYPES; i++)
     {
-        WriteU32(infoHeader, 0x08 + 4*i, offset);
+        WriteU32_BE(infoHeader, 0x08 + 4*i, offset);
         offset += 4 + infoPackages[i]->count * 4 + infoPackages[i]->size;
     }
     fwrite(infoHeader, 1, 0x40, outFile);
@@ -574,7 +576,7 @@ void ConvertPathToSdat(int argc, char **argv)
     }
     for (int i = 0; i < NUM_DATATYPES; i++)
     {
-        WriteU32(u32Buffer, 0, infoPackages[i]->count);
+        WriteU32_BE(u32Buffer, 0, infoPackages[i]->count);
         fwrite(u32Buffer, 1, 4, outFile);
         offset += 4 + 4 * infoPackages[i]->count;
         int dataIndex = 0;
@@ -582,11 +584,11 @@ void ConvertPathToSdat(int argc, char **argv)
         {
             if (strcmp(j->name, "") == 0)
             {
-                WriteU32(u32Buffer, 0, 0);
+                WriteU32_BE(u32Buffer, 0, 0);
             }
             else
             {
-                WriteU32(u32Buffer, 0, offset);
+                WriteU32_BE(u32Buffer, 0, offset);
                 offset += j->size;
 
                 /*if (naix)
@@ -626,7 +628,7 @@ void ConvertPathToSdat(int argc, char **argv)
         free(infoPackages[i]);
     }
     free(infoPackages);
-    WriteU32(u32Buffer, 0, 0);
+    WriteU32_BE(u32Buffer, 0, 0);
     fwrite(u32Buffer, 1, infoPad, outFile);
 
     // FAT block
@@ -634,8 +636,8 @@ void ConvertPathToSdat(int argc, char **argv)
     {
         'F',  'A',  'T',  ' ',  0x00, 0x00, 0x00, 0x00,  0x00, 0x00, 0x00, 0x00
     };
-    WriteU32(fatHeader, 0x04, 0x0C + filePackage->count * 0x10);
-    WriteU32(fatHeader, 0x08, filePackage->count);
+    WriteU32_BE(fatHeader, 0x04, 0x0C + filePackage->count * 0x10);
+    WriteU32_BE(fatHeader, 0x08, filePackage->count);
     fwrite(fatHeader, 1, 0x0C, outFile);
 
     fileOffset += 0x0C;
@@ -643,8 +645,8 @@ void ConvertPathToSdat(int argc, char **argv)
     unsigned char *fileEntry = calloc(1, 0x10);
     for (struct FileStream *fileStream = filePackage->head; fileStream != NULL; fileStream = fileStream->next)
     {
-        WriteU32(fileEntry, 0x00, offset);
-        WriteU32(fileEntry, 0x04, fileStream->size);
+        WriteU32_BE(fileEntry, 0x00, offset);
+        WriteU32_BE(fileEntry, 0x04, fileStream->size);
         fwrite(fileEntry, 1, 0x10, outFile);
 
         offset += fileStream->size + PADDINGSIZE(fileStream->size, 0x20);
@@ -657,8 +659,8 @@ void ConvertPathToSdat(int argc, char **argv)
     {
         'F',  'I',  'L',  'E',  0x00, 0x00, 0x00, 0x00,  0x00, 0x00, 0x00, 0x00
     };
-    WriteU32(fileHeader, 0x04, filePackage->size);
-    WriteU32(fileHeader, 0x08, filePackage->count);
+    WriteU32_BE(fileHeader, 0x04, filePackage->size);
+    WriteU32_BE(fileHeader, 0x08, filePackage->count);
     fwrite(fileHeader, 1, 0x0C, outFile);
 
     unsigned char *padding = calloc(1, 0x20);

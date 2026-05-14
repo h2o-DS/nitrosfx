@@ -1,5 +1,35 @@
 #include "util.h"
 
+#include <limits.h>
+
+bool ParseNumber(char *s, char **end, int radix, int *intValue)
+{
+    char *localEnd;
+
+    if (end == NULL)
+        end = &localEnd;
+
+    errno = 0;
+
+    const long longValue = strtol(s, end, radix);
+
+    if (*end == s)
+        return false; // not a number
+
+    if ((longValue == LONG_MIN || longValue == LONG_MAX) && errno == ERANGE)
+        return false;
+
+    if (longValue > INT_MAX)
+        return false;
+
+    if (longValue < INT_MIN)
+        return false;
+
+    *intValue = (int)longValue;
+
+    return true;
+}
+
 char *GetFileExtension(char *path)
 {
     char *extension = path;
@@ -54,36 +84,36 @@ unsigned char *ReadWholeFile(char *path, int *size)
 
 // TODO: change read and write functions to do either BE or LE based on an input parameter
 // Then give a little endian option to each file type
-__uint8_t ReadU8(const unsigned char *ptr, const size_t offset) {
+uint8_t ReadU8(const unsigned char *ptr, const size_t offset) {
     return ptr[offset];
 }
 
-__uint16_t ReadU16_BE(const unsigned char *ptr, const size_t offset) {
+uint16_t ReadU16_BE(const unsigned char *ptr, const size_t offset) {
     return (ptr[offset + 1] << 8) | ptr[offset];
 }
 
-__uint16_t ReadU16_LE(const unsigned char *ptr, const size_t offset) {
+uint16_t ReadU16_LE(const unsigned char *ptr, const size_t offset) {
     return (ptr[offset] << 8) | ptr[offset + 1];
 }
 
-__uint32_t ReadU24_BE(const unsigned char *ptr, const size_t offset) {
+uint32_t ReadU24_BE(const unsigned char *ptr, const size_t offset) {
     return (ptr[offset + 2] << 16) | (ptr[offset + 1] << 8) | ptr[offset];
 }
 
-__uint32_t ReadU24_LE(const unsigned char *ptr, const size_t offset) {
+uint32_t ReadU24_LE(const unsigned char *ptr, const size_t offset) {
     return (ptr[offset] << 16) | (ptr[offset + 1] << 8) | ptr[offset + 2];
 }
 
-__uint32_t ReadU32_BE(const unsigned char *ptr, const size_t offset) {
+uint32_t ReadU32_BE(const unsigned char *ptr, const size_t offset) {
     return (ptr[offset + 3] << 24) | (ptr[offset + 2] << 16) | (ptr[offset + 1] << 8) | ptr[offset];
 }
 
-__uint32_t ReadU32_LE(const unsigned char *ptr, const size_t offset) {
+uint32_t ReadU32_LE(const unsigned char *ptr, const size_t offset) {
     return (ptr[offset] << 24) | (ptr[offset + 1] << 16) | (ptr[offset + 2] << 8) | ptr[offset + 3];
 }
 
-__uint32_t ReadVariableLength(const unsigned char *ptr, size_t *offset) {
-    __uint32_t val = ptr[*offset] & 0x7F;
+uint32_t ReadVariableLength(const unsigned char *ptr, size_t *offset) {
+    uint32_t val = ptr[*offset] & 0x7F;
     while (ptr[*offset] & 0x80)
     {
         (*offset)++;
@@ -93,30 +123,30 @@ __uint32_t ReadVariableLength(const unsigned char *ptr, size_t *offset) {
     return val;
 }
 
-void WriteU8(unsigned char *ptr, const size_t offset, __uint8_t value) {
+void WriteU8(unsigned char *ptr, const size_t offset, uint8_t value) {
     ptr[offset] = value;
 }
 
-void WriteU16(unsigned char *ptr, const size_t offset, __uint16_t value) {
+void WriteU16_BE(unsigned char *ptr, const size_t offset, uint16_t value) {
     ptr[offset] = value;
     ptr[offset + 1] = value >> 8;
 }
 
-void WriteU24(unsigned char *ptr, const size_t offset, __uint32_t value) {
+void WriteU24_BE(unsigned char *ptr, const size_t offset, uint32_t value) {
     ptr[offset] = value;
     ptr[offset + 1] = value >> 8;
     ptr[offset + 2] = value >> 16;
 }
 
-void WriteU32(unsigned char *ptr, const size_t offset, __uint32_t value) {
+void WriteU32_BE(unsigned char *ptr, const size_t offset, uint32_t value) {
     ptr[offset] = value;
     ptr[offset + 1] = value >> 8;
     ptr[offset + 2] = value >> 16;
     ptr[offset + 3] = value >> 24;
 }
 
-__uint8_t WriteVariableLength(unsigned char *ptr, size_t offset, __uint32_t value) {
-    __uint8_t size = 0;
+uint8_t WriteVariableLength(unsigned char *ptr, size_t offset, uint32_t value) {
+    uint8_t size = 0;
     for (int i = 3; i > 0; i--)
     {
         if (value >> (7 * i))
@@ -131,9 +161,9 @@ __uint8_t WriteVariableLength(unsigned char *ptr, size_t offset, __uint32_t valu
     return size;
 }
 
-__uint8_t VariableLength(__uint32_t value)
+uint8_t VariableLength(uint32_t value)
 {
-    __uint8_t size = 1;
+    uint8_t size = 1;
     for (int i = 3; i > 0; i--)
     {
         if (value >> (7 * i))

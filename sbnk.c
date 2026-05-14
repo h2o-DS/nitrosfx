@@ -131,7 +131,7 @@ void ConvertTxtToSbnk(int argc, char **argv)
             {
                 FATAL_ERROR("Read error in section %d, NULL\n", sbnkPackage->count);
             }
-            WriteU16(instrumentData, push, strtod(s, NULL));
+            WriteU16_BE(instrumentData, push, strtod(s, NULL));
             for (int i = 0; i < 2; i++)
             {
                 s = strtok(NULL, delimiter);
@@ -139,7 +139,7 @@ void ConvertTxtToSbnk(int argc, char **argv)
                 {
                     FATAL_ERROR("Read error in section %d, NULL\n", sbnkPackage->count);
                 }
-                WriteU16(instrumentData, i * 2 + 2 + push, strtod(s, NULL));
+                WriteU16_BE(instrumentData, i * 2 + 2 + push, strtod(s, NULL));
             }
             for (int i = 0; i < 6; i++)
             {
@@ -214,7 +214,7 @@ void ConvertTxtToSbnk(int argc, char **argv)
                         {
                             FATAL_ERROR("Read error in section %d, PSG\n", sbnkPackage->count);
                         }
-                        WriteU16(instrumentData, i * 2, strtod(s, NULL));
+                        WriteU16_BE(instrumentData, i * 2, strtod(s, NULL));
                     }
                     for (int i = 0; i < 6; i++)
                     {
@@ -276,9 +276,9 @@ void ConvertTxtToSbnk(int argc, char **argv)
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0x00, 0x00, 0x00, 0x00
     };
-    WriteU32(sbnkHeader, 0x08, sbnkPackage->size); // file size
-    WriteU32(sbnkHeader, 0x14, sbnkPackage->size - 0x10); // data size
-    WriteU32(sbnkHeader, 0x38, sbnkPackage->count); // number of instruments
+    WriteU32_BE(sbnkHeader, 0x08, sbnkPackage->size); // file size
+    WriteU32_BE(sbnkHeader, 0x14, sbnkPackage->size - 0x10); // data size
+    WriteU32_BE(sbnkHeader, 0x38, sbnkPackage->count); // number of instruments
 
     FILE *outFile = fopen(outputPath, "wb");
     if (outFile == NULL)
@@ -304,7 +304,7 @@ void ConvertTxtToSbnk(int argc, char **argv)
         else
         {
             absolutePointer[0] = bnk->instrumentsType;
-            WriteU16(absolutePointer, 1, headerSize + bnk->address);
+            WriteU16_BE(absolutePointer, 1, headerSize + bnk->address);
             fwrite(absolutePointer, 1, 4, outFile);
             bnk = bnk->next;
             while ((bnk != NULL) && (bnk->size == 0)) // check for "same as above"

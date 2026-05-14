@@ -171,9 +171,9 @@ void ConvertPathToSwar(int argc, char **argv)
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0x00, 0x00, 0x00, 0x00
     };
-    WriteU32(swarHeader, 0x08, swarPackage->size); // file size
-    WriteU32(swarHeader, 0x14, swarPackage->size - 0x10); // data size
-    WriteU32(swarHeader, 0x38, swarPackage->count); // number of swavs
+    WriteU32_BE(swarHeader, 0x08, swarPackage->size); // file size
+    WriteU32_BE(swarHeader, 0x14, swarPackage->size - 0x10); // data size
+    WriteU32_BE(swarHeader, 0x38, swarPackage->count); // number of swavs
 
     FILE *outFile = fopen(outputPath, "wb");
     if (outFile == NULL)
@@ -271,7 +271,7 @@ void ConvertSwarToPath(int argc, char **argv)
     for (int i = fileNames->count; i < numSwavs; i++)
     {
         char *numName = malloc(8);
-        snprintf(numName, 8, "%02d.swav", i);
+        snprintf(numName, 9, "%03d.swav", i);
         // could collide with poorly named order files, but that feels like a user error
         // don't feel like checking for that now
         fileNames->s[fileNames->count++] = JoinPaths(outputPath, numName);
@@ -300,8 +300,8 @@ void ConvertSwarToPath(int argc, char **argv)
         {
             swavSize = swarSize - swavAddress;
         }
-        WriteU32(swavHeader, 0x08, swavSize + 0x18);
-        WriteU32(swavHeader, 0x14, swavSize + 0x08);
+        WriteU32_BE(swavHeader, 0x08, swavSize + 0x18);
+        WriteU32_BE(swavHeader, 0x14, swavSize + 0x08);
 
         // write to file
         fwrite(swavHeader, 1, 0x18, outFile);

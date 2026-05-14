@@ -210,7 +210,7 @@ static void ConvertMidiToSseq(int UNUSED, char **argv)
                         output[outputSize] = SSEQ_COMMAND_TEMPO;
                         lastSSEQCommand = SSEQ_COMMAND_TEMPO;
                         __uint16_t tempo = 60000000 / ReadU24_BE(data, trackOffset);
-                        WriteU16(output, outputSize + 1, tempo);
+                        WriteU16_BE(output, outputSize + 1, tempo);
                         outputSize += 3;
                         break;
 
@@ -225,7 +225,7 @@ static void ConvertMidiToSseq(int UNUSED, char **argv)
                             {
                                 output[outputSize] = SSEQ_COMMAND_SWEEP_PITCH;
                                 lastSSEQCommand = SSEQ_COMMAND_SWEEP_PITCH;
-                                WriteU16(output, outputSize + 1, (int)strtol(text + 11, NULL, 10));
+                                WriteU16_BE(output, outputSize + 1, (int)strtol(text + 11, NULL, 10));
                                 outputSize += 3;
                             }
 
@@ -235,8 +235,8 @@ static void ConvertMidiToSseq(int UNUSED, char **argv)
                                 lastSSEQCommand = SSEQ_COMMAND_RANDOM;
                                 __uint128_t bit5 = (__uint128_t)strtoll(text + 7, NULL, 10);
                                 WriteU8(output, outputSize + 1, bit5 & 0xFF);
-                                WriteU16(output, outputSize + 2, (bit5 >> 8) & 0xFFFF);
-                                WriteU16(output, outputSize + 4, (bit5 >> 24) & 0xFFFF);
+                                WriteU16_BE(output, outputSize + 2, (bit5 >> 8) & 0xFFFF);
+                                WriteU16_BE(output, outputSize + 4, (bit5 >> 24) & 0xFFFF);
                                 outputSize += 6;
                             }
 
@@ -244,7 +244,7 @@ static void ConvertMidiToSseq(int UNUSED, char **argv)
                             {
                                 output[outputSize] = SSEQ_COMMAND_JUMP;
                                 lastSSEQCommand = SSEQ_COMMAND_JUMP;
-                                WriteU24(output, outputSize + 1, (int)strtol(text + 13, NULL, 16) + format * 8);
+                                WriteU24_BE(output, outputSize + 1, (int)strtol(text + 13, NULL, 16) + format * 8);
                                 outputSize += 4;
                             }
 
@@ -259,7 +259,7 @@ static void ConvertMidiToSseq(int UNUSED, char **argv)
                                 output[outputSize] = SSEQ_COMMAND_CALL;
                                 lastSSEQCommand = SSEQ_COMMAND_CALL;
                                 callPointer = (int)strtol(callText + 8, NULL, 16) + format * 8;
-                                WriteU24(output, outputSize + 1, callPointer);
+                                WriteU24_BE(output, outputSize + 1, callPointer);
                                 outputSize += 4;
                                 callAddress = outputSize;
                                 outputSize = callPointer + 0x1C;
@@ -632,12 +632,12 @@ static void ConvertSseqToMidi(int UNUSED, char **argv)
     ReadSseq(argv[1], argv[2]);
 }
 
-
+// TODO: add -h to main and all converters
 int main(int argc, char **argv)
 {
     if (argc < 3) FATAL_ERROR("Usage: nitrosfx INPUT_PATH OUTPUT_PATH [options...]\n");
 
-    // 4/14
+    // 6/14
     struct CommandHandler handlers[] =
     {
         {"mid",  "sseq", ConvertMidiToSseq}, // finish
@@ -652,8 +652,8 @@ int main(int argc, char **argv)
         {"swar", "wav",  ConvertSwarToWav}, // TODO
         {NULL,   "swar", ConvertPathToSwar}, // multiple swav from dir
         {"swar",   NULL, ConvertSwarToPath}, // multiple swav to dir
-        {NULL,   "sdat", ConvertPathToSdat}, // TODO
-        {"sdat",   NULL, ConvertSdatToPath}, // TODO
+        {NULL,   "sdat", ConvertPathToSdat},
+        {"sdat",   NULL, ConvertSdatToPath},
     };
 
     char *inputPath = argv[1];

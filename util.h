@@ -41,6 +41,7 @@ struct StrVec {
     size_t capacity;
 };
 
+bool ParseNumber(char *s, char **end, int radix, int *intValue);
 char *GetFileExtension(char *path);
 unsigned char *ReadWholeFile(char *path, int *size);
 __uint8_t ReadU8(const unsigned char *ptr, const size_t offset);
@@ -52,9 +53,9 @@ __uint32_t ReadU32_BE(const unsigned char *ptr, const size_t offset);
 __uint32_t ReadU32_LE(const unsigned char *ptr, const size_t offset);
 __uint32_t ReadVariableLength(const unsigned char *ptr, size_t *offset);
 void WriteU8(unsigned char *ptr, const size_t offset, __uint8_t value);
-void WriteU16(unsigned char *ptr, const size_t offset, __uint16_t value);
-void WriteU24(unsigned char *ptr, const size_t offset, __uint32_t value);
-void WriteU32(unsigned char *ptr, const size_t offset, __uint32_t value);
+void WriteU16_BE(unsigned char *ptr, const size_t offset, __uint16_t value);
+void WriteU24_BE(unsigned char *ptr, const size_t offset, __uint32_t value);
+void WriteU32_BE(unsigned char *ptr, const size_t offset, __uint32_t value);
 __uint8_t WriteVariableLength(unsigned char *ptr, size_t offset, __uint32_t value);
 __uint8_t VariableLength(__uint32_t value);
 char *JoinPaths(char *parent, char *child);

@@ -10,9 +10,6 @@ OBJS = $(SRCS:%.c=%.o)
 all: nitrosfx
 	@:
 
-nitrosfx-debug: $(SRCS) util.h sbnk.h sdat.h sseq.h swar.h swav.h
-	$(CC) $(CFLAGS) -g -DDEBUG $(SRCS) -o $@ $(LDFLAGS) $(LIBS)
-
 nitrosfx: $(SRCS) util.h sbnk.h sseq.h sdat.h swar.h swav.h
 	$(CC) $(CFLAGS) -O2 $(SRCS) -o $@ $(LDFLAGS) $(LIBS)
 
