@@ -637,19 +637,19 @@ int main(int argc, char **argv)
 {
     if (argc < 3) FATAL_ERROR("Usage: nitrosfx INPUT_PATH OUTPUT_PATH [options...]\n");
 
-    // 6/14
+    // 12/14
     struct CommandHandler handlers[] =
     {
         {"mid",  "sseq", ConvertMidiToSseq}, // finish
         {"sseq",  "mid", ConvertSseqToMidi}, // finish
-        {"wav",  "swav", ConvertWavToSwav}, // finish
-        {"swav",  "wav", ConvertSwavToWav}, // finish
+        {"wav",  "swav", ConvertWavToSwav},
+        {"swav",  "wav", ConvertSwavToWav},
         {"txt",  "sbnk", ConvertTxtToSbnk},
         {"sbnk",  "txt", ConvertSbnkToTxt},
-        {"swav", "swar", ConvertSwavToSwar}, // TODO
-        {"swar", "swav", ConvertSwarToSwav}, // TODO
-        {"wav", "swar",  ConvertWavToSwar}, // TODO
-        {"swar", "wav",  ConvertSwarToWav}, // TODO
+        {"swav", "swar", ConvertSwavToSwar},
+        {"swar", "swav", ConvertSwarToSwav},
+        {"wav", "swar",  ConvertWavToSwar},
+        {"swar", "wav",  ConvertSwarToWav},
         {NULL,   "swar", ConvertPathToSwar}, // multiple swav from dir
         {"swar",   NULL, ConvertSwarToPath}, // multiple swav to dir
         {NULL,   "sdat", ConvertPathToSdat},

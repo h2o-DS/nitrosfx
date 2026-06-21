@@ -206,3 +206,14 @@ int U32cmp_q(const void *i1, const void *i2)
     const int b = *(uint32_t*)i2;
     return (a > b) - (a < b);
 }
+
+void WriteNitroChunk(void *dst, char *fileType, uint32_t fileSize)
+{
+    struct NitroChunk *nitroChunk = dst;
+    memcpy(&nitroChunk->chunkID, fileType, 4);
+    WriteU16_BE((uint8_t*)&nitroChunk->magic1, 0, 0xFEFF);
+    WriteU16_BE((uint8_t*)&nitroChunk->magic2, 0, 0x0100);
+    WriteU32_BE((uint8_t*)&nitroChunk->fileSize, 0, fileSize);
+    WriteU16_BE((uint8_t*)&nitroChunk->size, 0, sizeof(struct NitroChunk));
+    WriteU16_BE((uint8_t*)&nitroChunk->magic3, 0, 0x0001);
+}

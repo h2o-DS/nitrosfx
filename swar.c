@@ -1,13 +1,27 @@
 #include "swar.h"
+#include "swav.h"
 
 #include "util.h"
 
-static void PackSwarFile(struct DataPackage *swarPackage, unsigned char *data, const uint32_t size)
+#define SWAV_HEADLESS_OFFSET 0x18
+
+struct SwarChunk_DATA {
+    uint32_t chunkID;
+    uint32_t size;
+    uint32_t padding[8];
+    uint32_t count;
+    //uint8_t *headerless SWAVs;
+};
+
+#define SWAR_DATA_ADDRESS(SWAR) (SWAR + sizeof(struct NitroChunk))
+#define SWAR_TABLE_ADDRESS(SWAR) (SWAR_DATA_ADDRESS(SWAR) + sizeof(struct SwarChunk_DATA))
+
+static void PackSwav(struct DataPackage *swarPackage, uint8_t *swav, const uint32_t swavSize)
 {
     struct DataFile *file = malloc(sizeof(struct DataFile));
     file->next = NULL;
-    file->data = data + 0x18; // SWAV is stored headless
-    file->size = size - 0x18;
+    file->data = swav + SWAV_HEADLESS_OFFSET; // SWAV is stored headless
+    file->size = swavSize - SWAV_HEADLESS_OFFSET;
 
     // Each file adds a U32 to the indexing table
     swarPackage->size += sizeof(uint32_t) + file->size;
@@ -24,14 +38,143 @@ static void PackSwarFile(struct DataPackage *swarPackage, unsigned char *data, c
     swarPackage->count++;
 }
 
+static uint8_t *SwarPackageToSwar(struct DataPackage *swarPackage)
+{
+    uint8_t *swar = malloc(swarPackage->size);
+    WriteNitroChunk(swar, "SWAR", swarPackage->size);
+
+    struct SwarChunk_DATA *dataChunk = (struct SwarChunk_DATA*)SWAR_DATA_ADDRESS(swar);
+    memcpy(&dataChunk->chunkID, "DATA", 4);
+    WriteU32_BE((uint8_t*)&dataChunk->size, 0, swarPackage->size - sizeof(struct NitroChunk));
+    for (int i = 0; i < 8; i++)
+    {
+        dataChunk->padding[i] = 0;
+    }
+    WriteU32_BE((uint8_t*)&dataChunk->count, 0, swarPackage->count);
+
+    // write indexing table
+    uint8_t *swarAddress = SWAR_TABLE_ADDRESS(swar);
+    uint32_t swavPointer = sizeof(struct NitroChunk) + sizeof(struct SwarChunk_DATA) + swarPackage->count * sizeof(uint32_t);
+    struct DataFile *swav = swarPackage->head;
+    for (int i = 0; i < swarPackage->count; i++)
+    {
+        WriteU32_BE(swarAddress, 0, swavPointer);
+        swarAddress += 4;
+        swavPointer += swav->size;
+        swav = swav->next;
+    }
+
+    // write file stream
+    swav = swarPackage->head;
+    for (int i = 0; i < swarPackage->count; i++)
+    {
+        memcpy(swarAddress, swav->data, swav->size);
+        swarAddress += swav->size;
+        swav = swav->next;
+    }
+
+    return swar;
+}
+
+static struct DataPackage *InitSwarPackage()
+{
+    struct DataPackage *swarPackage = calloc(1, sizeof(struct DataPackage));
+    if (swarPackage == NULL) FATAL_ERROR("could not allocate memory for SWAR\n");
+    swarPackage->size = sizeof(struct NitroChunk) + sizeof(struct SwarChunk_DATA);
+
+    return swarPackage;
+}
+
+// Also frees contained SWAVs
+static void FreeSwarPackage(struct DataPackage *swarPackage)
+{
+    struct DataFile *swav = swarPackage->head;
+    for (int i = 0; i < swarPackage->count; i++)
+    {
+        free(swav->data - SWAV_HEADLESS_OFFSET); // get beginning of swav file
+        struct DataFile *swavF = swav;
+        swav = swav->next;
+        free(swavF);
+    }
+    free(swarPackage);
+}
+
 void ConvertSwavToSwar(int argc, char **argv)
 {
-    printf("%d\t%s\n", argc, argv[2]);
+    if (argc < 3) FATAL_ERROR("Insufficient arguments\n");
+    char *inputPath = argv[1];
+    char *outputPath = argv[2];
+
+    int swavSize;
+    uint8_t *swav = ReadWholeFile(inputPath, &swavSize);
+    struct DataPackage *swarPackage = InitSwarPackage();
+    PackSwav(swarPackage, swav, swavSize);
+
+    uint8_t *swar = SwarPackageToSwar(swarPackage);
+    
+    FILE *outFile = fopen(outputPath, "wb");
+    if (outFile == NULL) FATAL_ERROR("Failed to open \"%s\" for writing.\n", outputPath);
+    fwrite(swar, 1, swarPackage->size, outFile);
+    FreeSwarPackage(swarPackage);
+    fclose(outFile);
+    free(swar);
 }
 
 void ConvertSwarToSwav(int argc, char **argv)
 {
-    printf("%d\t%s\n", argc, argv[2]);
+    if (argc < 3) FATAL_ERROR("Insufficient arguments\n");
+    char *inputPath = argv[1];
+    char *outputPath = argv[2];
+
+    // optional args
+    int swavIndex = 0;
+    for (int i = 3; i < argc; i++)
+    {
+        if (strcmp(argv[i], "--index") == 0)
+        {
+            if (i + 1 >= argc) FATAL_ERROR("Usage: \"--index [#]\"\n");
+            if (!ParseNumber(argv[++i], NULL, 10, &swavIndex)) FATAL_ERROR("Failed to parse SWAV index.\n");
+            if (swavIndex < 0) FATAL_ERROR("SWAV index must be non-negative\n");
+        }
+        else
+        {
+            FATAL_ERROR("Unrecognized argument: \"%s\"\n", argv[i]);
+        }
+    }
+
+    // open input file
+    int swarSize;
+    uint8_t *swar = ReadWholeFile(inputPath, &swarSize);
+    if (memcmp(swar, "SWAR", 4) != 0) FATAL_ERROR("%s is not a valid SWAR file.\n", inputPath);
+    struct SwarChunk_DATA *swarData = (struct SwarChunk_DATA*)SWAR_DATA_ADDRESS(swar);
+    uint32_t numSwavs = ReadU32_BE((uint8_t*)&swarData->count, 0);
+
+    if (numSwavs == 0) FATAL_ERROR("%s is an empty archive\n", inputPath);
+    if (numSwavs <= swavIndex) FATAL_ERROR("SWAV index must be less than swav quantity, %d\n", numSwavs);
+    uint8_t *swarAddress = SWAR_TABLE_ADDRESS(swar) + swavIndex * sizeof(uint32_t);
+    uint8_t *swavAddress = swar + ReadU32_BE(swarAddress, 0);
+    uint32_t swavSize;
+    if (numSwavs == swavIndex + 1) // last or only entry
+    {
+        swavSize = swarSize - ReadU32_BE(swarAddress, 0) + sizeof(struct NitroChunk) + 0x08;
+    }
+    else
+    {
+        swavSize = ReadU32_BE(swarAddress + sizeof(uint32_t), 0) - ReadU32_BE(swarAddress, 0) + sizeof(struct NitroChunk) + 0x08;
+    }
+
+    uint8_t *swav = malloc(swavSize);
+    WriteNitroChunk(swav, "SWAV", swavSize);
+    memcpy(swav + sizeof(struct NitroChunk), "DATA", 4);
+    WriteU32_BE(swav + sizeof(struct NitroChunk) + 0x04, 0, swavSize - sizeof(struct NitroChunk));
+    memcpy(swav + sizeof(struct NitroChunk) + 0x08, swavAddress, swavSize - sizeof(struct NitroChunk) - 0x08);
+    free(swar);
+
+    FILE *outFile = fopen(outputPath, "wb");
+    if (outFile == NULL) FATAL_ERROR("Failed to open \"%s\" for writing.\n", outputPath);
+    fwrite(swav, 1, swavSize, outFile);
+    fclose(outFile);
+    free(swav);
 }
 
 // TODO:
@@ -143,67 +286,29 @@ void ConvertPathToSwar(int argc, char **argv)
     }
 
     // pack swav files
-    struct DataPackage *swarPackage = calloc(1, sizeof(struct DataPackage));
-    swarPackage->size = 0x3C;
-    if (swarPackage == NULL) {
-        FATAL_ERROR("could not allocate memory for SWAR\n");
-    }
-    unsigned char *swavFile;
+    struct DataPackage *swarPackage = InitSwarPackage();
     int swavSize;
     for (int i = 0; i < sortedNames->count; i++)
     {
-        swavFile = ReadWholeFile(sortedNames->s[i], &swavSize);
+        uint8_t *swavFile = ReadWholeFile(sortedNames->s[i], &swavSize);
         if (memcmp(swavFile, "SWAV", 4) != 0)
         {
             FATAL_ERROR("%s not a valid swav file\n", sortedNames->s[i]);
         }
         free(sortedNames->s[i]);
 
-        PackSwarFile(swarPackage, swavFile, swavSize);
+        PackSwav(swarPackage, swavFile, swavSize);
     }
     free(sortedNames);
 
-    // write header
-    unsigned char swarHeader[0x3C] =
-    {
-        'S',  'W',  'A',  'R',  0xFF, 0xFE, 0x00, 0x01,  0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x01, 0x00,
-        'D',  'A',  'T',  'A',  0x00, 0x00, 0x00, 0x00,  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0x00, 0x00, 0x00, 0x00
-    };
-    WriteU32_BE(swarHeader, 0x08, swarPackage->size); // file size
-    WriteU32_BE(swarHeader, 0x14, swarPackage->size - 0x10); // data size
-    WriteU32_BE(swarHeader, 0x38, swarPackage->count); // number of swavs
-
+    uint8_t *swar = SwarPackageToSwar(swarPackage);
+    
     FILE *outFile = fopen(outputPath, "wb");
-    if (outFile == NULL)
-        FATAL_ERROR("Failed to open \"%s\" for writing.\n", outputPath);
-    fwrite(swarHeader, 1, 0x3C, outFile);
-
-    // write indexing table
-    size_t swavPointer = 0x3C + swarPackage->count * 0x04;
-    struct DataFile *swav = swarPackage->head;
-    for (int i = 0; i < swarPackage->count; i++)
-    {
-        fwrite(&swavPointer, 1, 4, outFile);
-        swavPointer += swav->size;
-        swav = swav->next;
-    }
-
-    // write file stream
-    swav = swarPackage->head;
-    struct DataFile *swavF;
-    for (int i = 0; i < swarPackage->count; i++)
-    {
-        fwrite(swav->data, 1, swav->size, outFile);
-        free(swav->data - 0x18); // get beginning of swav file
-        swavF = swav;
-        swav = swav->next;
-        free(swavF);
-    }
-
-    free(swarPackage);
+    if (outFile == NULL) FATAL_ERROR("Failed to open \"%s\" for writing.\n", outputPath);
+    fwrite(swar, 1, swarPackage->size, outFile);
+    FreeSwarPackage(swarPackage);
     fclose(outFile);
+    free(swar);
 }
 
 void ConvertSwarToPath(int argc, char **argv)
@@ -218,12 +323,10 @@ void ConvertSwarToPath(int argc, char **argv)
 
     // open input file
     int swarSize;
-    unsigned char *swarFile = ReadWholeFile(inputPath, &swarSize);
-    if (memcmp(swarFile, "SWAR", 4) != 0)
-    {
-        FATAL_ERROR("Not a valid swar file.\n");
-    }
-    uint32_t numSwavs = ReadU32_BE(swarFile, 0x38);
+    uint8_t *swar = ReadWholeFile(inputPath, &swarSize);
+    if (memcmp(swar, "SWAR", 4) != 0) FATAL_ERROR("%s is not a valid SWAR file.\n", inputPath);
+    struct SwarChunk_DATA *swarData = (struct SwarChunk_DATA*)(swar + sizeof(struct NitroChunk));
+    uint32_t numSwavs = ReadU32_BE((uint8_t*)&swarData->count, 0);
 
     // generate list of output file names
     struct StrVec *fileNames = StrVec_New(5000); // arbitary allocation
@@ -263,10 +366,7 @@ void ConvertSwarToPath(int argc, char **argv)
         }
         fclose(orderFile);
     }
-    if (fileNames->count > numSwavs)
-    {
-        FATAL_ERROR("Too many files in ORDER FILE %s\n", orderPath);
-    }
+    if (fileNames->count > numSwavs) FATAL_ERROR("Too many files in ORDER FILE %s\n", orderPath);
     // remaining files are named numerically
     for (int i = fileNames->count; i < numSwavs; i++)
     {
@@ -280,7 +380,7 @@ void ConvertSwarToPath(int argc, char **argv)
 
     // write SWAVs to output directory
     uint32_t pointerAddress = 0x3C;
-    unsigned char swavHeader[0x18] =
+    uint8_t swavHeader[] =
     {
         'S',  'W',  'A',  'V',  0xFF, 0xFE, 0x00, 0x01,  0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x01, 0x00,
         'D',  'A',  'T',  'A',  0x00, 0x00, 0x00, 0x00
@@ -293,9 +393,9 @@ void ConvertSwarToPath(int argc, char **argv)
         free(fileNames->s[i]);
 
         // calc filesize
-        uint32_t swavAddress = ReadU32_BE(swarFile, pointerAddress);
+        uint32_t swavAddress = ReadU32_BE(swar, pointerAddress);
         pointerAddress += 4;
-        uint32_t swavSize = ReadU32_BE(swarFile, pointerAddress) - swavAddress;
+        uint32_t swavSize = ReadU32_BE(swar, pointerAddress) - swavAddress;
         if (i == numSwavs - 1)
         {
             swavSize = swarSize - swavAddress;
@@ -305,19 +405,132 @@ void ConvertSwarToPath(int argc, char **argv)
 
         // write to file
         fwrite(swavHeader, 1, 0x18, outFile);
-        fwrite(swarFile + swavAddress, 1, swavSize, outFile);
+        fwrite(swar + swavAddress, 1, swavSize, outFile);
         fclose(outFile);
     }
     free(fileNames);
-    free(swarFile);
+    free(swar);
 }
 
 void ConvertWavToSwar(int argc, char **argv)
 {
-    printf("%d\t%s\n", argc, argv[2]);
+    if (argc < 3) FATAL_ERROR("Insufficient arguments\n");
+    char *inputPath = argv[1];
+    char *outputPath = argv[2];
+
+    // optional args
+    uint8_t encodeType = SWAV_IMA_ADPCM;
+    for (int i = 3; i < argc; i++)
+    {
+        if (strcmp(argv[i], "--pcm8") == 0)
+        {
+            encodeType = SWAV_SIGNED_PCM8;
+        }
+        else if (strcmp(argv[i], "--pcm16") == 0)
+        {
+            encodeType = SWAV_SIGNED_PCM16;
+        }
+        else if (strcmp(argv[i], "--adpcm") == 0)
+        {
+            encodeType = SWAV_IMA_ADPCM;
+        }
+        else
+        {
+            FATAL_ERROR("Unrecognized argument: \"%s\"\n", argv[i]);
+        }
+    }
+
+    // pack swav file
+    int wavSize;
+    uint8_t *wav = ReadWholeFile(inputPath, &wavSize);
+    struct WavChunk_RIFF *riff = (struct WavChunk_RIFF*)wav;
+    if (memcmp(&riff->chunkID, "RIFF", 4) != 0) FATAL_ERROR("%s is not a RIFF file.\n", inputPath);
+    if (memcmp(&riff->formType, "WAVE", 4) != 0) FATAL_ERROR("%s does not have WAVE form type.\n", inputPath);
+
+    uint32_t swavSize;
+    uint8_t *swav = WavToSwav(wav, wavSize, &swavSize, encodeType);
+    free(wav);
+
+    struct DataPackage *swarPackage = InitSwarPackage();
+    PackSwav(swarPackage, swav, swavSize);
+    uint8_t *swar = SwarPackageToSwar(swarPackage);
+    
+    // write swar to file
+    FILE *outFile = fopen(outputPath, "wb");
+    if (outFile == NULL) FATAL_ERROR("Failed to open \"%s\" for writing.\n", outputPath);
+    fwrite(swar, 1, swarPackage->size, outFile);
+    FreeSwarPackage(swarPackage);
+    fclose(outFile);
+    free(swar);
 }
 
 void ConvertSwarToWav(int argc, char **argv)
 {
-    printf("%d\t%s\n", argc, argv[2]);
+    if (argc < 3) FATAL_ERROR("Insufficient arguments\n");
+    char *inputPath = argv[1];
+    char *outputPath = argv[2];
+
+    // optional args
+    int swavIndex = 0;
+    bool pcm16 = true;
+    for (int i = 3; i < argc; i++)
+    {
+        if (strcmp(argv[i], "--index") == 0)
+        {
+            if (i + 1 >= argc) FATAL_ERROR("Usage: \"--index [#]\"\n");
+            if (!ParseNumber(argv[++i], NULL, 10, &swavIndex)) FATAL_ERROR("Failed to parse SWAV index.\n");
+            if (swavIndex < 0) FATAL_ERROR("SWAV index must be non-negative\n");
+        }
+        else if (strcmp(argv[i], "--pcm16") == 0)
+        {
+            pcm16 = true;
+        }
+        else if (strcmp(argv[i], "--same") == 0)
+        {
+            pcm16 = false;
+        }
+        else
+        {
+            FATAL_ERROR("Unrecognized argument: \"%s\"\n", argv[i]);
+        }
+    }
+
+    // open input file
+    int swarSize;
+    uint8_t *swar = ReadWholeFile(inputPath, &swarSize);
+    if (memcmp(swar, "SWAR", 4) != 0) FATAL_ERROR("%s is not a valid SWAR file.\n", inputPath);
+    struct SwarChunk_DATA *swarData = (struct SwarChunk_DATA*)SWAR_DATA_ADDRESS(swar);
+    uint32_t numSwavs = ReadU32_BE((uint8_t*)&swarData->count, 0);
+
+    if (numSwavs == 0) FATAL_ERROR("%s is an empty archive\n", inputPath);
+    if (numSwavs <= swavIndex) FATAL_ERROR("SWAV index must be less than swav quantity, %d\n", numSwavs);
+    uint8_t *swarAddress = SWAR_TABLE_ADDRESS(swar) + swavIndex * sizeof(uint32_t);
+    uint8_t *swavAddress = swar + ReadU32_BE(swarAddress, 0);
+    uint32_t swavSize;
+    if (numSwavs == swavIndex + 1) // last or only entry
+    {
+        swavSize = swarSize - ReadU32_BE(swarAddress, 0) + sizeof(struct NitroChunk) + 0x08;
+    }
+    else
+    {
+        swavSize = ReadU32_BE(swarAddress + sizeof(uint32_t), 0) - ReadU32_BE(swarAddress, 0) + sizeof(struct NitroChunk) + 0x08;
+    }
+
+    uint8_t *swav = malloc(swavSize);
+    WriteNitroChunk(swav, "SWAV", swavSize);
+    memcpy(swav + sizeof(struct NitroChunk), "DATA", 4);
+    WriteU32_BE(swav + sizeof(struct NitroChunk) + 0x04, 0, swavSize - sizeof(struct NitroChunk));
+    memcpy(swav + sizeof(struct NitroChunk) + 0x08, swavAddress, swavSize - sizeof(struct NitroChunk) - 0x08);
+    free(swar);
+
+    uint32_t wavSize;
+    uint8_t *wav = SwavToWav(swav, swavSize, &wavSize, pcm16);
+    free(swav);
+
+    // write wav to file
+    FILE *outFile = fopen(outputPath, "wb");
+    if (outFile == NULL) FATAL_ERROR("Failed to open \"%s\" for writing.\n", outputPath);
+    fwrite(wav, 1, wavSize, outFile);
+    free(wav);
+    fclose(outFile);
 }

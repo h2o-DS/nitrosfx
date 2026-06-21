@@ -7,12 +7,6 @@
 #define WAVE_CODEC_PCM       0x0001
 #define WAVE_CODEC_IMA_ADPCM 0x0011
 
-struct WavChunk_RIFF {
-    uint32_t chunkID;
-    uint32_t fileSize;
-    uint32_t formType;
-};
-
 struct WavChunk_fmt {
     uint32_t chunkID;
     uint32_t size;              // Does not include chunkID, size, or any padding
@@ -54,15 +48,6 @@ struct WavChunk_smpl {
     //struct Wav_SampleLoop *sampleLoop;
 };
 
-struct SwavChunk_SWAV {
-    uint32_t chunkID;
-    uint16_t magic1; // endianness?
-    uint16_t magic2;
-    uint32_t fileSize;
-    uint16_t size;
-    uint16_t magic3; // version?
-};
-
 struct SwavChunk_DATA {
     uint32_t chunkID;
     uint32_t size;
@@ -73,12 +58,6 @@ struct SwavChunk_DATA {
     uint16_t loopStart;
     uint32_t loopSize;
     //uint8_t *audio;
-};
-
-enum SWAV_ENCODE {
-    SWAV_SIGNED_PCM8 = 0,
-    SWAV_SIGNED_PCM16,
-    SWAV_IMA_ADPCM,
 };
 
 static const int IMA_INDEX_TABLE[16] = {
@@ -130,7 +109,7 @@ static int IMA_ADPCM_Encode(short initialValue, struct IMA_Prediction *predictio
     prediction->value += diff;
 
     if (prediction->value > 32767) prediction->value = 32767;
-    else if (prediction->value < -32767) prediction->value = -32767;
+    else if (prediction->value < -32767) prediction->value = -32767; // intentional clamp error
 
     prediction->index += IMA_INDEX_TABLE[newSample];
     if (prediction->index < 0) prediction->index = 0;
@@ -171,7 +150,9 @@ static int InitialStepIndex(short initialValue, short oringinalSample)
         prediction.index = i;
         int newSample = IMA_ADPCM_Encode(oringinalSample, &prediction);
         prediction.index = i;
-        int diff = IMA_ADPCM_Decode(newSample, &prediction) - oringinalSample;
+        int diff = IMA_ADPCM_Decode(newSample, &prediction);
+        if (diff == -32768) diff = -32767; // intentional clamp error
+        diff -= oringinalSample;
         if (diff < 0) diff = -diff;
         if (diff < minDiff)
         {
@@ -197,77 +178,33 @@ static short InitialValue(int nibble, int initialStepIndex, short audioOut)
 
         if ((newValue == nibble) && (newInitStep == initialStepIndex)) return i;
     }
-    printf("Error: no valid first value for %x\t%x\n", initialStepIndex, nibble);
+    //printf("Error: no valid first value for %x\t%x\n", initialStepIndex, nibble);
     return audioOut;
 }
 
 uint8_t loopShift[] = {2, 1, 3}; // TODO: replace this wih block size?
 
-// TODO: check loop start position < loop end
-// TODO: audio padding when converting
-// TODO: max samples (PCM8:, PCM16:, ADPCM:0x1000)
-void ConvertWavToSwav(int argc, char **argv)
+uint8_t swavTypeSamplesPer64bit[] = {4, 2, 8};
+
+uint8_t *WavToSwav(uint8_t *wav, uint32_t wavSize, uint32_t *swavSize, uint8_t encodeType)
 {
-    if (argc < 3) FATAL_ERROR("Insufficient arguments\n");
-    char *inputPath = argv[1];
-    char *outputPath = argv[2];
-
-    bool smplFound = false;
-
-    struct SwavChunk_DATA *sData = malloc(sizeof(struct SwavChunk_DATA));
-    sData->encodeType = SWAV_IMA_ADPCM;
-    sData->loop = false;
-    sData->loopStart = 0;
-
-    // optional args
-    for (int i = 3; i < argc; i++)
-    {
-        if (strcmp(argv[i], "--pcm8") == 0)
-        {
-            sData->encodeType = SWAV_SIGNED_PCM8;
-        }
-        else if (strcmp(argv[i], "--pcm16") == 0)
-        {
-            sData->encodeType = SWAV_SIGNED_PCM16;
-        }
-        else if (strcmp(argv[i], "--adpcm") == 0)
-        {
-            sData->encodeType = SWAV_IMA_ADPCM;
-        }
-        else if (strcmp(argv[i], "--loop") == 0)
-        {
-            if (i + 2 >= argc)
-            {
-                FATAL_ERROR("Usage: \"-loop [loopStart] [loopSize]\"\nValues are in # of samples\n");
-            }
-            if (!ParseNumber(argv[++i], NULL, 10, (int*)&sData->loopStart)) FATAL_ERROR("Failed to parse loop start address.\n");
-            if (!ParseNumber(argv[++i], NULL, 10, (int*)&sData->loopSize)) FATAL_ERROR("Failed to parse loop size.\n");
-            sData->loop = true;
-            smplFound = true;
-        }
-        else
-        {
-            FATAL_ERROR("Unrecognized argument: \"%s\"\n", argv[i]);
-        }
-    }
-
-    int fileSize;
-    uint8_t *wav = ReadWholeFile(inputPath, &fileSize);
-    struct WavChunk_RIFF *riff = (struct WavChunk_RIFF*)wav;
-    if (memcmp(&riff->chunkID, "RIFF", 4) != 0) FATAL_ERROR("%s is not a RIFF file.\n", inputPath);
-    if (memcmp(&riff->formType, "WAVE", 4) != 0) FATAL_ERROR("%s does not have WAVE form type.\n", inputPath);
-
     // parse wav file
     struct WavChunk_fmt *fmt = NULL;
     struct WavChunk_data *wData = NULL;
     struct WavChunk_smpl *smpl = NULL;
+    struct Wav_SampleLoop *sampleLoop = NULL;
     uint8_t *wAudio;
     uint32_t numSamples = 0;
+    uint16_t samplingRate = 0;
+    uint16_t clockTime = 0;
+    bool loop = false;
+    uint16_t loopStart = 0;
+    uint32_t loopSize = 0;
     size_t offset = sizeof(struct WavChunk_RIFF);
-    while (offset + 0x08 < fileSize)
+    while (offset + 0x08 < wavSize)
     {
         uint32_t chunkSize = ReadU32_BE(wav, offset + 0x04);
-        if (fileSize < offset + 0x08 + chunkSize) FATAL_ERROR("Error reading chunk size\n");
+        if (wavSize < offset + 0x08 + chunkSize) FATAL_ERROR("Error reading chunk size\n");
         if (memcmp(wav + offset, "fmt ", 4) == 0)
         {
             fmt = (struct WavChunk_fmt*)(wav + offset); // organize data
@@ -276,14 +213,14 @@ void ConvertWavToSwav(int argc, char **argv)
             if ((fmt->wFormatTag != WAVE_CODEC_PCM) && (fmt->wFormatTag != WAVE_CODEC_IMA_ADPCM)) FATAL_ERROR("Only PCM and IMA-ADPCM files are supported\n");
             fmt->wChannels = ReadU16_BE((uint8_t*)&fmt->wChannels, 0);
             if (fmt->wChannels != 1) FATAL_ERROR("Only mono files supported\n");
-            sData->samplingRate = ReadU32_BE((uint8_t*)&fmt->dwSamplesPerSec, 0);
-            sData->clockTime = 16756991 / sData->samplingRate;
+            samplingRate = ReadU32_BE((uint8_t*)&fmt->dwSamplesPerSec, 0);
+            clockTime = 16756991 / samplingRate;
             fmt->wBlockAlign = ReadU16_BE((uint8_t*)&fmt->wBlockAlign, 0);
             fmt->wBitsPerSample = ReadU16_BE((uint8_t*)&fmt->wBitsPerSample, 0);
         }
         else if (memcmp(wav + offset, "data", 4) == 0)
         {
-            if (fmt == NULL) FATAL_ERROR("File %s missing fmt chunk\n", inputPath); // fmt must be before data
+            if (fmt == NULL) FATAL_ERROR("Missing fmt chunk\n"); // fmt must be before data
             wData = malloc(sizeof(struct WavChunk_data));
             wData->size = chunkSize;
             wAudio = wav + offset + 0x08;
@@ -291,34 +228,36 @@ void ConvertWavToSwav(int argc, char **argv)
             numSamples = chunkSize / fmt->wBlockAlign;
             if (fmt->wFormatTag == WAVE_CODEC_IMA_ADPCM) numSamples = (chunkSize - 4 * numSamples) * 2;
         }
-        else if ((memcmp(wav + offset, "smpl", 4) == 0) && !smplFound) // skip if loop values passed as args (or duplicate smpl chunk I guess)
+        else if (memcmp(wav + offset, "smpl", 4) == 0)
         {
-            smplFound = true;
-
             smpl = (struct WavChunk_smpl*)(wav + offset);
-            sData->loop = 0 < ReadU32_BE((uint8_t*)&smpl->numLoops, 0);
-            if (sData->loop)
+            loop = 0 < ReadU32_BE((uint8_t*)&smpl->numLoops, 0);
+            if (loop)
             {
-                struct Wav_SampleLoop *sampleLoop = (struct Wav_SampleLoop*)(wav + offset + sizeof(struct WavChunk_smpl));
-                sData->loopStart = ReadU32_BE((uint8_t*)&sampleLoop[0].start, 0);
-                sData->loopSize = ReadU32_BE((uint8_t*)&sampleLoop[0].end, 0) - sData->loopStart + 1;
+                sampleLoop = (struct Wav_SampleLoop*)(wav + offset + sizeof(struct WavChunk_smpl));
+                sampleLoop->start = ReadU32_BE((uint8_t*)&sampleLoop->start, 0);
+                sampleLoop->end = ReadU32_BE((uint8_t*)&sampleLoop->end, 0);
+                // pad
+                sampleLoop->start += (swavTypeSamplesPer64bit[encodeType] - sampleLoop->start) % swavTypeSamplesPer64bit[encodeType];
+                sampleLoop->end += (swavTypeSamplesPer64bit[encodeType] - sampleLoop->end) % swavTypeSamplesPer64bit[encodeType];
+                numSamples = sampleLoop->end;
+
+                loopStart = sampleLoop->start;
+                loopSize = sampleLoop->end - sampleLoop->start;
             }
         }
-        /*else if (memcmp(wav + offset, "SWAV", 4) == 0) // cheat here
+        else if (memcmp(wav + offset, "SWAV", 4) == 0) // cheat here
         {
-            sData->clockTime = ReadU32_BE(wav, offset + 0x08);
-        }*/
+            clockTime = ReadU32_BE(wav, offset + 0x08);
+        }
         offset += 0x08 + chunkSize + (chunkSize % 2); // chunk ID, size, and padding are not included in wav chunk size
     }
-    if (fmt == NULL) FATAL_ERROR("File %s missing fmt chunk\n", inputPath);
-    if (wData == NULL) FATAL_ERROR("File %s missing fmt chunk\n", inputPath);
+    if (fmt == NULL) FATAL_ERROR("Missing \"fmt \" chunk\n");
+    if (wData == NULL) FATAL_ERROR("Missing \"data\" chunk\n");
 
     // Write WAV Header
-    FILE *outFile = fopen(outputPath, "wb");
-    if (outFile == NULL) FATAL_ERROR("Failed to open \"%s\" for writing.\n", outputPath);
-
     uint32_t dataSize = 0;
-    switch (sData->encodeType)
+    switch (encodeType)
     {
         case SWAV_SIGNED_PCM8:
             dataSize = numSamples;
@@ -327,49 +266,45 @@ void ConvertWavToSwav(int argc, char **argv)
             dataSize = numSamples * 2;
             break;
         case SWAV_IMA_ADPCM:
-            dataSize = numSamples / 2 + 4;
+            dataSize = 4 + numSamples / 2 + numSamples % 2;
             break;
     }
-    if (sData->loop)
+    dataSize += (4 - dataSize) % 4; // padding
+    if (loop)
     {
-        //if (sData->loopStart > numSamples) FATAL_ERROR("Loop start position must be <= numSamples\n");
-        //if (sData->loopSize > numSamples) FATAL_ERROR("Loop size must be <= numSamples\n");
+        if (loopStart > numSamples) FATAL_ERROR("Loop start position must be <= numSamples\n");
+        if (loopSize > numSamples + loopStart) FATAL_ERROR("Loop end must be <= number of samples\n");
     }
     else
     {
-        sData->loopSize = numSamples;
+        loopSize = numSamples + ((1 << loopShift[encodeType]) - numSamples) % (1 << loopShift[encodeType]);
     }
 
-    // Write SWAV header
-    struct SwavChunk_SWAV *swavChunk = malloc(sizeof(struct SwavChunk_SWAV));
-    memcpy(&swavChunk->chunkID, "SWAV", 4);
-    WriteU16_BE((uint8_t*)&swavChunk->magic1, 0, 0xFEFF);
-    WriteU16_BE((uint8_t*)&swavChunk->magic2, 0, 0x0100);
-    WriteU32_BE((uint8_t*)&swavChunk->fileSize, 0, dataSize + 0x24);
-    WriteU16_BE((uint8_t*)&swavChunk->size, 0, sizeof(struct SwavChunk_SWAV));
-    WriteU16_BE((uint8_t*)&swavChunk->magic3, 0, 0x0001);
+    *swavSize = sizeof(struct NitroChunk) + sizeof(struct SwavChunk_DATA) + dataSize;
+    uint8_t *swav = malloc(*swavSize);
 
-    fwrite(swavChunk, 1, sizeof(struct SwavChunk_SWAV), outFile);
-    free(swavChunk);
+    // Write SWAV header
+    WriteNitroChunk(swav, "SWAV", *swavSize);
 
     // Write DATA Header
-    memcpy(&sData->chunkID, "DATA", 4);
-    WriteU32_BE((uint8_t*)&sData->size, 0, dataSize + 0x14);
-    // Check for endianness
-    WriteU16_BE((uint8_t*)&sData->samplingRate, 0, sData->samplingRate);
-    WriteU16_BE((uint8_t*)&sData->clockTime, 0, sData->clockTime);
-    WriteU16_BE((uint8_t*)&sData->loopStart, 0, (sData->loopStart >> loopShift[sData->encodeType]) + (sData->encodeType == SWAV_IMA_ADPCM));
-    WriteU32_BE((uint8_t*)&sData->loopSize, 0, sData->loopSize >> loopShift[sData->encodeType]);
+    struct SwavChunk_DATA *swavData = (struct SwavChunk_DATA*)(swav + sizeof(struct NitroChunk));
+    memcpy(&swavData->chunkID, "DATA", 4);
+    WriteU32_BE((uint8_t*)&swavData->size, 0, dataSize + 0x14);
+    swavData->encodeType = encodeType;
+    swavData->loop = loop;
+    WriteU16_BE((uint8_t*)&swavData->samplingRate, 0, samplingRate);
+    WriteU16_BE((uint8_t*)&swavData->clockTime, 0, clockTime);
+    WriteU16_BE((uint8_t*)&swavData->loopStart, 0, (loopStart >> loopShift[encodeType]) + (encodeType == SWAV_IMA_ADPCM));
+    WriteU32_BE((uint8_t*)&swavData->loopSize, 0, loopSize >> loopShift[encodeType]);
 
-    fwrite(sData, 1, 0x14, outFile); // Will write audio stream separately
+    uint8_t *audioOut = swav + sizeof(struct NitroChunk) + sizeof(struct SwavChunk_DATA);
 
-    // write data stream
-    // TODO: convert IMA-ADPCM <-> PCM
+    // convert inAudio to 16 bit
     if (fmt->wFormatTag == WAVE_CODEC_IMA_ADPCM)
     {
-        if (sData->encodeType == SWAV_IMA_ADPCM)
+        if (swavData->encodeType == SWAV_IMA_ADPCM)
         {
-            fwrite(wAudio, 1, wData->size, outFile);
+            memcpy(audioOut, wAudio, wData->size);
         }
         else
         {
@@ -378,258 +313,386 @@ void ConvertWavToSwav(int argc, char **argv)
     }
     else
     {
-        uint8_t *inAudio = wAudio;
-        uint8_t *wAduioEnd = wAudio + wData->size;
-
-        unsigned char *swavBits = malloc(sData->encodeType + 1);
-        while (inAudio < wAduioEnd)
+        // convert PCM data to 16 bit
+        numSamples = wData->size / fmt->wBlockAlign;
+        //if (numSamples > 0x1000) numSamples = 0x1000;
+        int bytesPerSample = (fmt->wBitsPerSample + 7) / 8;
+        int wavAudioSize = numSamples * bytesPerSample;
+        uint8_t *mediumAudio = malloc(numSamples * 2);
+        if (mediumAudio == NULL) FATAL_ERROR("Failed to convert audio to 16bit it for conversion\n");
+        if (wavAudioSize == 0) FATAL_ERROR("Error reading WAV audio size\n");
+        uint8_t *audioStart = wAudio;
+        uint8_t *auidoEnd = wAudio + wavAudioSize;
+        uint8_t *convertedAudio = mediumAudio;
+        if (bytesPerSample == 1)
         {
-            switch (sData->encodeType)
+            while(audioStart < auidoEnd)
             {
-                case SWAV_SIGNED_PCM8:
-                    *swavBits = inAudio[fmt->wBlockAlign - 1];
-                    if (fmt->wBitsPerSample <= 8) // WAV is unsigned at 8 bits or less
-                    {
-                        *swavBits ^= 0x80; // TODO: make this more robust for bitsize < 8
-                    }
-                    fwrite(swavBits, 1, 1, outFile);
-                    inAudio += fmt->wBlockAlign;
-                    break;
-                case SWAV_SIGNED_PCM16:
-                    swavBits[0] = inAudio[fmt->wBlockAlign - 2];
-                    swavBits[1] = inAudio[fmt->wBlockAlign - 1];
-                    if (fmt->wBitsPerSample <= 8) // WAV is unsigned at 8 bits or less
-                    {
-                        *swavBits ^= 0x80; // TODO: make this more robust for bitsize < 8
-                    }
-                    fwrite(swavBits, 1, 2, outFile);
-                    inAudio += fmt->wBlockAlign;
-                    break;
-                case SWAV_IMA_ADPCM:
-                    if ((fmt->wBlockAlign != 2) || (fmt->wBitsPerSample != 16)) FATAL_ERROR("TODO\n");
-                    struct IMA_Prediction prediction;
-                    prediction.value = 0;
-                    prediction.index = InitialStepIndex(0, ReadU16_BE(inAudio, 0));
-
-                    uint8_t *audioOut = malloc(dataSize);
-                    audioOut[0] = 0x00;
-                    audioOut[1] = 0x00;
-                    audioOut[2] = prediction.index;
-                    audioOut[3] = 0x00;
-                    int i = 8;
-                    while (inAudio < wAduioEnd)
-                    {
-                        uint8_t audioSample = IMA_ADPCM_Encode(ReadU16_BE(inAudio, 0), &prediction);
-                        /*if (i/2 > 0x108 && i/2 < 0x118)
-                        {
-                            printf("%d\t%x\t%d\t%x\t%d\t%d\n", i, ReadU16_BE(inAudio, 0), (short)ReadU16_BE(inAudio, 0), audioSample, prediction.value, prediction.index);
-                        }*/
-                        inAudio += 2;
-                        if (i % 2)
-                        {
-                            audioOut[i++ / 2] |= audioSample << 4;
-                        }
-                        else
-                        {
-                            audioOut[i++ / 2] = audioSample;
-                        }
-                    }
-                    fwrite(audioOut, 1, dataSize, outFile);
-                    free(audioOut);
-                    break;
+                convertedAudio[0] = 0;
+                convertedAudio[1] = audioStart[0] ^ 0x80;
+                audioStart += fmt->wBlockAlign;
+                convertedAudio += 2;
             }
         }
-        free(swavBits);
+        else if (bytesPerSample == 2)
+        {
+            while(audioStart < auidoEnd)
+            {
+                convertedAudio[0] = audioStart[0];
+                convertedAudio[1] = audioStart[1];
+                audioStart += fmt->wBlockAlign;
+                convertedAudio += 2;
+            }
+        }
+        else
+        {
+            if (fmt->wBlockAlign < 3) FATAL_ERROR("WAV Block Align error\n");
+            audioStart += fmt->wBlockAlign - 2;
+            while(audioStart < auidoEnd)
+            {
+                convertedAudio[0] = audioStart[0];
+                convertedAudio[1] = audioStart[1];
+                audioStart += fmt->wBlockAlign;
+                convertedAudio += 2;
+            }
+        }
+
+        // output converted audio
+        uint8_t *audioPointer = mediumAudio;
+        switch(swavData->encodeType)
+        {
+            case SWAV_SIGNED_PCM8:
+                audioPointer++;
+                while (audioPointer < mediumAudio + numSamples*2)
+                {
+                    *audioOut++ = *audioPointer;
+                    audioPointer += 2;
+                }
+                while (numSamples % 4)
+                {
+                    *audioOut++ = 0;
+                    numSamples++;
+                }
+                break;
+            case SWAV_SIGNED_PCM16:
+                memcpy(audioOut, mediumAudio, numSamples * 2);
+                if (numSamples % 2) *(uint16_t*)(audioOut + numSamples * 2) = 0;
+                break;
+            case SWAV_IMA_ADPCM:
+                struct IMA_Prediction prediction;
+                prediction.value = 0;
+                prediction.index = InitialStepIndex(0, ReadU16_BE(audioPointer, 0));
+
+                audioOut[0] = 0;
+                audioOut[1] = 0;
+                audioOut[2] = prediction.index;
+                audioOut[3] = 0;
+                int i = 8;
+                while (audioPointer < mediumAudio + numSamples*2)
+                {
+                    uint8_t audioSample = IMA_ADPCM_Encode(ReadU16_BE(audioPointer, 0), &prediction);
+                    audioPointer += 2;
+                    if (i % 2)
+                    {
+                        audioOut[i++ / 2] |= audioSample << 4;
+                    }
+                    else
+                    {
+                        audioOut[i++ / 2] = audioSample;
+                    }
+                }
+                while (numSamples % 8)
+                {
+                    uint8_t audioSample = IMA_ADPCM_Encode(0, &prediction);
+                    if (i % 2)
+                    {
+                        audioOut[i++ / 2] |= audioSample << 4;
+                    }
+                    else
+                    {
+                        audioOut[i++ / 2] = audioSample;
+                    }
+                    numSamples++;
+                }
+                break;
+            default:
+                FATAL_ERROR("Impossible encode type\n");
+                break;
+        }
+        free(mediumAudio);
+    }
+    free(wData);
+
+    return swav;
+}
+
+uint8_t *SwavToWav(uint8_t *swav, uint32_t swavSize, uint32_t *wavSize, bool pcm16)
+{
+    // read swav file
+    size_t offset = ReadU16_BE(swav, 0x0C);
+    struct SwavChunk_DATA *sData = NULL;
+    uint8_t *swavAudio;
+
+    while (offset + 0x08 < swavSize)
+    {
+        uint32_t chunkSize = ReadU32_BE(swav, offset + 0x04);
+        if ((swavSize < offset + chunkSize) || (chunkSize < 8))
+        {
+            FATAL_ERROR("Error reading chunk size\n");
+        }
+        if (memcmp(swav + offset, "DATA", 4) == 0)
+        {
+            sData = (struct SwavChunk_DATA*)(swav + offset);
+            sData->size = chunkSize - sizeof(struct SwavChunk_DATA);
+            sData->samplingRate = ReadU16_BE((uint8_t*)&sData->samplingRate, 0);
+            sData->clockTime = ReadU16_BE((uint8_t*)&sData->clockTime, 0);
+            sData->loopStart = (ReadU16_BE((uint8_t*)&sData->loopStart, 0) - (sData->encodeType == SWAV_IMA_ADPCM)) << loopShift[sData->encodeType];
+            sData->loopSize = ReadU32_BE((uint8_t*)&sData->loopSize, 0) << loopShift[sData->encodeType];
+            swavAudio = swav + offset + sizeof(struct SwavChunk_DATA);
+        }
+        offset += chunkSize;
+    }
+    if (sData == NULL) FATAL_ERROR("File missing DATA chunk\n");
+
+    uint32_t wavAudioSize = sData->size;
+    uint16_t formatTag;
+    uint16_t blockAlign;
+    uint16_t bitsPerSample;
+    if (pcm16)
+    {
+        formatTag = WAVE_CODEC_PCM;
+        blockAlign = sizeof(short);
+        bitsPerSample = sizeof(short) * 8;
+        if (sData->encodeType == SWAV_IMA_ADPCM)
+        {
+            wavAudioSize = (sData->size - 4) * 4;
+        }
+        else if (sData->encodeType == SWAV_SIGNED_PCM8)
+        {
+            wavAudioSize *= 2;
+        }
+    }
+    else
+    {
+        if (sData->encodeType == SWAV_IMA_ADPCM)
+        {
+            formatTag = WAVE_CODEC_IMA_ADPCM;
+            blockAlign = sData->size;
+            bitsPerSample = 4;
+        }
+        else
+        {
+            formatTag = WAVE_CODEC_PCM;
+            blockAlign = sData->encodeType + 1; // same pcm size as swav
+            bitsPerSample = blockAlign * 8;
+        }
+    }
+    bool clockBroken = sData->clockTime != 16756991 / sData->samplingRate;
+
+    *wavSize = sizeof(struct WavChunk_RIFF) + sizeof(struct WavChunk_fmt) + sizeof(struct WavChunk_data) + wavAudioSize + (wavAudioSize % 2) + sData->loop * (sizeof(struct WavChunk_smpl) + sizeof(struct Wav_SampleLoop)) + clockBroken * 12;
+    uint8_t *wav = malloc(*wavSize);
+
+    // Write WAV File
+    struct WavChunk_RIFF *riff = (struct WavChunk_RIFF*)wav;
+    memcpy(&riff->chunkID, "RIFF", 4);
+    WriteU32_BE((uint8_t*)&riff->fileSize, 0, *wavSize - 0x08);
+    memcpy(&riff->formType, "WAVE", 4);
+
+    struct WavChunk_fmt *fmt = (struct WavChunk_fmt*)(wav + sizeof(struct WavChunk_RIFF));
+    memcpy(&fmt->chunkID, "fmt ", 4);
+    WriteU32_BE((uint8_t*)&fmt->size, 0, sizeof(struct WavChunk_fmt) - 0x08);
+    WriteU16_BE((uint8_t*)&fmt->wFormatTag, 0, formatTag);
+    WriteU16_BE((uint8_t*)&fmt->wChannels, 0, 1);
+    WriteU32_BE((uint8_t*)&fmt->dwSamplesPerSec, 0, sData->samplingRate);
+    WriteU32_BE((uint8_t*)&fmt->dwAvgBytesPerSec, 0, sData->samplingRate * blockAlign);
+    WriteU16_BE((uint8_t*)&fmt->wBlockAlign, 0, blockAlign);
+    WriteU16_BE((uint8_t*)&fmt->wBitsPerSample, 0, bitsPerSample);
+
+    struct WavChunk_data *wData = (struct WavChunk_data*)(wav + sizeof(struct WavChunk_RIFF) + sizeof(struct WavChunk_fmt));
+    memcpy(&wData->chunkID, "data", 4);
+    WriteU32_BE((uint8_t*)&wData->size, 0, sizeof(struct WavChunk_data) - 0x08 + wavAudioSize);
+
+    // write data stream
+    uint8_t *wavAudio = wav + sizeof(struct WavChunk_RIFF) + sizeof(struct WavChunk_fmt) + sizeof(struct WavChunk_data);
+    uint8_t *inAudio = swavAudio;
+    uint8_t *audioEnd = swavAudio + sData->size;
+    if (sData->encodeType == SWAV_SIGNED_PCM8)
+    {
+        if (pcm16)
+        {
+            while (inAudio < audioEnd)
+            {
+                *wavAudio++ = 0;
+                *wavAudio++ = *inAudio++;
+            }
+        }
+        else
+        {
+            while (inAudio < audioEnd)
+            {
+                *wavAudio++ = *inAudio++ ^ 0x80; // WAV is unsigned at 8 bits or less
+            }
+        }
+    }
+    else if (sData->encodeType == SWAV_IMA_ADPCM)
+    {
+        if (pcm16)
+        {
+            struct IMA_Prediction prediction;
+            prediction.value = ReadU16_BE(swavAudio, 0);
+            prediction.index = swavAudio[2]; // TODO: clamp these
+            inAudio += 0x04;
+            int i = 0;
+            while (inAudio < audioEnd)
+            {
+                char bottomNibble = *inAudio & 0x0F;
+                char topNibble = (*inAudio++ >> 4) & 0x0F;
+                WriteU16_BE(wavAudio, i, IMA_ADPCM_Decode(bottomNibble, &prediction));
+                i += 2;
+                WriteU16_BE(wavAudio, i, IMA_ADPCM_Decode(topNibble, &prediction));
+                i += 2;
+            }
+            if (InitialStepIndex(0, ReadU16_BE(wavAudio, 0)) != swavAudio[2]) WriteU16_BE(wavAudio, 0, InitialValue(swavAudio[4] & 0x0F, swavAudio[2], ReadU16_BE(wavAudio, 0)));
+            wavAudio += i;
+        }
+        else
+        {
+            while (inAudio < audioEnd)
+            {
+                *wavAudio++ = *inAudio++;
+            }
+        }
+    }
+    else
+    {
+        while (inAudio < audioEnd)
+        {
+            *wavAudio++ = *inAudio++;
+        }
     }
 
+    if (wavAudioSize % 2) *wavAudio++ = 0; // padding
+
+    if (sData->loop)
+    {
+        struct WavChunk_smpl *smpl = (struct WavChunk_smpl*)wavAudio; // place after audio
+        memcpy(&smpl->chunkID, "smpl", 4);
+        WriteU32_BE((uint8_t*)&smpl->size, 0, sizeof(struct WavChunk_smpl) + sizeof(struct Wav_SampleLoop) - 0x08);
+        smpl->manufacturer = 0;
+        smpl->product = 0;
+        smpl->samplePeriod = 0;
+        smpl->MIDI_unityNote = 0;
+        smpl->MIDI_pitchFraction = 0;
+        smpl->SMPTE_format = 0;
+        smpl->SMPTE_offset = 0;
+        WriteU32_BE((uint8_t*)&smpl->numLoops, 0, 1);
+        smpl->sampleData = 0;
+        wavAudio += sizeof(struct WavChunk_smpl);
+
+        struct Wav_SampleLoop *sampleLoop = (struct Wav_SampleLoop*)wavAudio;
+        sampleLoop->id = 0;
+        sampleLoop->type = 0;
+        WriteU32_BE((uint8_t*)&sampleLoop->start, 0, sData->loopStart);
+        WriteU32_BE((uint8_t*)&sampleLoop->end, 0, sData->loopStart + sData->loopSize - 1);
+        sampleLoop->fraction = 0;
+        sampleLoop->repititions = 0;
+        wavAudio += sizeof(struct Wav_SampleLoop);
+    }
+
+    if (clockBroken) // this is cheating but I don't care
+    {
+        // only necessary for matching original swav
+        memcpy(wavAudio, "SWAV", 4);
+        WriteU32_BE(wavAudio + 0x04, 0, 4);
+        WriteU32_BE(wavAudio + 0x08, 0, sData->clockTime);
+    }
+
+    return wav;
+}
+
+// TODO: check loop start position < loop end
+void ConvertWavToSwav(int argc, char **argv)
+{
+    if (argc < 3) FATAL_ERROR("Insufficient arguments\n");
+    char *inputPath = argv[1];
+    char *outputPath = argv[2];
+
+    // optional args
+    uint8_t encodeType = SWAV_IMA_ADPCM;
+    for (int i = 3; i < argc; i++)
+    {
+        if (strcmp(argv[i], "--pcm8") == 0)
+        {
+            encodeType = SWAV_SIGNED_PCM8;
+        }
+        else if (strcmp(argv[i], "--pcm16") == 0)
+        {
+            encodeType = SWAV_SIGNED_PCM16;
+        }
+        else if (strcmp(argv[i], "--adpcm") == 0)
+        {
+            encodeType = SWAV_IMA_ADPCM;
+        }
+        else
+        {
+            FATAL_ERROR("Unrecognized argument: \"%s\"\n", argv[i]);
+        }
+    }
+
+    int wavSize;
+    uint8_t *wav = ReadWholeFile(inputPath, &wavSize);
+    struct WavChunk_RIFF *riff = (struct WavChunk_RIFF*)wav;
+    if (memcmp(&riff->chunkID, "RIFF", 4) != 0) FATAL_ERROR("%s is not a RIFF file.\n", inputPath);
+    if (memcmp(&riff->formType, "WAVE", 4) != 0) FATAL_ERROR("%s does not have WAVE form type.\n", inputPath);
+
+    uint32_t swavSize;
+    uint8_t *swav = WavToSwav(wav, wavSize, &swavSize, encodeType);
     free(wav);
-    free(wData);
-    free(sData);
+
+    FILE *outFile = fopen(outputPath, "wb");
+    if (outFile == NULL) FATAL_ERROR("Failed to open \"%s\" for writing.\n", outputPath);
+    fwrite(swav, 1, swavSize, outFile);
     fclose(outFile);
+    free(swav);
 }
 
 // TODO: test with PCM16 swav
 // TODO: allow output other than pcm16
 void ConvertSwavToWav(int argc, char **argv)
 {
-    if (argc < 3)
-    {
-        FATAL_ERROR("Insufficient arguments\n");
-    }
+    if (argc < 3) FATAL_ERROR("Insufficient arguments\n");
     char *inputPath = argv[1];
     char *outputPath = argv[2];
 
-    int fileSize;
-    uint8_t *swav = ReadWholeFile(inputPath, &fileSize);
-    if (memcmp(swav, "SWAV", 4) != 0)
+    // optional args
+    bool pcm16 = true;
+    for (int i = 3; i < argc; i++)
     {
-        FATAL_ERROR("Not a valid swav file.\n");
-    }
-
-    // read swav file
-    size_t offset = ReadU16_BE(swav, 0x0C);
-    bool DATAFound = false;
-    // DATA info
-    enum SWAV_ENCODE swavEncodeType;
-    bool loop;
-    uint16_t samplingRate;
-    uint16_t clockTime;
-    uint16_t loopStart;
-    uint16_t loopLength;
-    uint32_t audioAddress;
-    uint32_t audioSize;
-    while (offset < fileSize)
-    {
-        uint32_t chunkSize = ReadU32_BE(swav, offset + 0x04);
-        if ((fileSize < offset + chunkSize) || (chunkSize < 8))
+        if (strcmp(argv[i], "--pcm16") == 0)
         {
-            FATAL_ERROR("Error reading chunk size\n");
+            pcm16 = true;
         }
-        if (memcmp(swav + offset, "DATA", 4) == 0)
+        else if (strcmp(argv[i], "--same") == 0)
         {
-            DATAFound = true;
-
-            swavEncodeType = ReadU8(swav, offset + 0x08);
-            if (swavEncodeType > SWAV_IMA_ADPCM)
-            {
-                FATAL_ERROR("Unsupported encode type\n");
-            }
-            loop = ReadU8(swav, offset + 0x09);
-            samplingRate = ReadU16_BE(swav, offset + 0x0A);
-            clockTime = ReadU16_BE(swav, offset + 0x0C);
-            loopStart = (ReadU16_BE(swav, offset + 0x0E) - (swavEncodeType == SWAV_IMA_ADPCM)) << loopShift[swavEncodeType];
-            loopLength = ReadU32_BE(swav, offset + 0x10) << loopShift[swavEncodeType];
-            audioAddress = offset + 0x14;
-            audioSize = chunkSize - 0x14;
-
-            offset = fileSize; // don't need to read any other chunks
-        }
-        offset += chunkSize;
-    }
-    if (DATAFound == false)
-    {
-        FATAL_ERROR("File %s missing DATA chunk\n", inputPath);
-    }
-
-    // Write WAV Header
-    FILE *outFile = fopen(outputPath, "wb");
-    if (outFile == NULL)
-    {
-        FATAL_ERROR("Failed to open \"%s\" for writing.\n", outputPath);
-    }
-
-    uint8_t WAVHeader[] =
-    {
-        'R',  'I',  'F',  'F',  0x00, 0x00, 0x00, 0x00,  'W',  'A',  'V',  'E',  'f',  'm',  't',  ' ',
-        0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00,  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00,  'd',  'a',  't',  'a',  0x00, 0x00, 0x00, 0x00
-    };
-
-    uint16_t blockAlign;
-    uint16_t bitPerSample;
-    if (swavEncodeType == SWAV_IMA_ADPCM)
-    {
-        /*WriteU16_BE(WAVHeader, 0x14, WAVE_CODEC_IMA_ADPCM);
-        blockAlign = audioSize;
-        bitPerSample = 4;*/
-        WriteU16_BE(WAVHeader, 0x14, WAVE_CODEC_PCM);
-        blockAlign = 2;
-        bitPerSample = 16;
-        audioSize = (audioSize - 4) * 4;
-    }
-    else
-    {
-        WriteU16_BE(WAVHeader, 0x14, WAVE_CODEC_PCM);
-        blockAlign = swavEncodeType + 1;
-        bitPerSample = blockAlign << 3;
-    }
-    bool clockBroken = clockTime != 16756991 / samplingRate;
-
-    WriteU32_BE(WAVHeader, 0x04, sizeof(WAVHeader) + audioSize + (audioSize % 2) + loop * 0x44 + clockBroken * 0x0C - 8); // file size - 8
-    WriteU32_BE(WAVHeader, 0x18, samplingRate);
-    WriteU32_BE(WAVHeader, 0x1C, samplingRate * blockAlign); // bytes per second
-    WriteU16_BE(WAVHeader, 0x20, blockAlign);
-    WriteU16_BE(WAVHeader, 0x22, bitPerSample);
-    WriteU32_BE(WAVHeader, 0x28, audioSize);
-
-    fwrite(WAVHeader, 1, sizeof(WAVHeader), outFile);
-
-    // write data stream
-    if (swavEncodeType == SWAV_SIGNED_PCM8)
-    {
-        uint32_t audioEnd = audioAddress + audioSize;
-        offset = audioAddress;
-        while (offset < audioEnd)
-        {
-            swav[offset] ^= 0x80; // WAV is unsigned at 8 bits or less
-            fwrite(swav + offset, 1, 1, outFile);
-            offset += 1;
-        }
-    }
-    else
-    {
-        if (swavEncodeType == SWAV_IMA_ADPCM)
-        {
-            uint32_t audioEnd = audioAddress + audioSize / 4 + 4;
-            offset = audioAddress;
-
-            struct IMA_Prediction prediction;
-            prediction.value = ReadU16_BE(swav, offset);
-            prediction.index = swav[offset + 2]; // TODO: clamp these
-            offset += 4;
-            short *audioOut = malloc(audioSize);
-            int i = 0;
-            while (offset < audioEnd)
-            {
-                char bottomNibble = swav[offset] & 0x0F;
-                char topNibble = (swav[offset++] >> 4) & 0x0F;
-                audioOut[i++] = IMA_ADPCM_Decode(bottomNibble, &prediction);
-                audioOut[i++] = IMA_ADPCM_Decode(topNibble, &prediction);
-            }
-            audioOut[0] = InitialValue(swav[audioAddress + 4] & 0x0F, swav[audioAddress + 2], audioOut[0]);
-            fwrite(audioOut, 1, audioSize, outFile);
-            free(audioOut);
+            pcm16 = false;
         }
         else
         {
-            fwrite(swav + audioAddress, 1, audioSize, outFile);
+            FATAL_ERROR("Unrecognized argument: \"%s\"\n", argv[i]);
         }
     }
-    if (audioSize % 2)
-    {
-        uint8_t pad = 0;
-        fwrite(&pad, 1, 1, outFile);
-    }
 
-    if (loop)
-    {
-        struct WavChunk_smpl *smpl = calloc(1, sizeof(struct WavChunk_smpl));
-        if (smpl == NULL) FATAL_ERROR("Failed to store smpl chunk\n");
-        memcpy(&smpl->chunkID, "smpl", 4);
-        WriteU32_BE((uint8_t*)&smpl->size, 0, sizeof(struct WavChunk_smpl) + sizeof(struct Wav_SampleLoop) - 0x08);
-        WriteU32_BE((uint8_t*)&smpl->numLoops, 0, 1);
-        fwrite(smpl, 1, sizeof(struct WavChunk_smpl), outFile);
-        free(smpl);
+    int swavSize;
+    uint8_t *swav = ReadWholeFile(inputPath, &swavSize);
+    if (memcmp(swav, "SWAV", 4) != 0) FATAL_ERROR("%s is not a valid swav file.\n", inputPath);
 
-        struct Wav_SampleLoop *sampleLoop = calloc(1, sizeof(struct Wav_SampleLoop));
-        if (sampleLoop == NULL) FATAL_ERROR("Failed to store sample loop\n");
-        WriteU32_BE((uint8_t*)&sampleLoop->start, 0, loopStart);
-        WriteU32_BE((uint8_t*)&sampleLoop->end, 0, loopStart + loopLength - 1);
-        fwrite(sampleLoop, 1, sizeof(struct Wav_SampleLoop), outFile);
-        free(sampleLoop);
-    }
-
-    /*if (clockBroken) // this is cheating but I don't care
-    {
-        uint8_t swavHeader[] = 
-        {
-            'S',  'W',  'A',  'V',  0x04, 0x00, 0x00, 0x00,  0x00, 0x00, 0x00, 0x00
-        };
-        WriteU32_BE(swavHeader, 0x08, clockTime); // hide in otherwise nonsense chunk
-        // only necessary for matching original swav
-        fwrite(swavHeader, 1, 0x0C, outFile);
-    }*/
-
+    uint32_t wavSize;
+    uint8_t *wav = SwavToWav(swav, swavSize, &wavSize, pcm16);
     free(swav);
+
+    FILE *outFile = fopen(outputPath, "wb");
+    if (outFile == NULL) FATAL_ERROR("Failed to open \"%s\" for writing.\n", outputPath);
+    fwrite(wav, 1, wavSize, outFile);
+    free(wav);
     fclose(outFile);
 }

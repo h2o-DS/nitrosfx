@@ -1,8 +1,6 @@
 #ifndef SWAR_H
 #define SWAR_H
 
-#include <stdbool.h>
-
 void ConvertSwavToSwar(int argc, char **argv);
 void ConvertSwarToSwav(int argc, char **argv);
 void ConvertPathToSwar(int argc, char **argv);
