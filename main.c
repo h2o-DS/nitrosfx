@@ -17,11 +17,10 @@ int main(int argc, char **argv)
 {
     if (argc < 3) FATAL_ERROR("Usage: nitrosfx INPUT_PATH OUTPUT_PATH [options...]\n");
 
-    // 12/14
     struct CommandHandler handlers[] =
     {
-        {"mid",  "sseq", ConvertMidiToSseq}, // finish
-        {"sseq",  "mid", ConvertSseqToMidi}, // finish
+        {"mid",  "sseq", ConvertMidiToSseq},
+        {"sseq",  "mid", ConvertSseqToMidi},
         {"wav",  "swav", ConvertWavToSwav},
         {"swav",  "wav", ConvertSwavToWav},
         {"txt",  "sbnk", ConvertTxtToSbnk},
@@ -32,8 +31,8 @@ int main(int argc, char **argv)
         {"swar", "wav",  ConvertSwarToWav},
         {NULL,   "swar", ConvertPathToSwar}, // multiple swav from dir
         {"swar",   NULL, ConvertSwarToPath}, // multiple swav to dir
-        {NULL,   "sdat", ConvertPathToSdat},
-        {"sdat",   NULL, ConvertSdatToPath},
+        {NULL,   "sdat", ConvertPathToSdat}, // directory + json to sdat
+        {"sdat",   NULL, ConvertSdatToPath}, // sdat to directory + json
     };
 
     char *inputPath = argv[1];

@@ -193,20 +193,20 @@ uint8_t *WavToSwav(uint8_t *wav, uint32_t wavSize, uint32_t *swavSize, uint8_t e
     size_t offset = sizeof(struct WavChunk_RIFF);
     while (offset + 0x08 < wavSize)
     {
-        uint32_t chunkSize = ReadU32_LE(wav, offset + 0x04);
+        uint32_t chunkSize = ReadU32_LE(wav + offset + 0x04);
         if (wavSize < offset + 0x08 + chunkSize) FATAL_ERROR("Error reading chunk size\n");
         if (memcmp(wav + offset, "fmt ", 4) == 0)
         {
             fmt = (struct WavChunk_fmt*)(wav + offset); // organize data
             // convert used variables to code endianness
-            fmt->wFormatTag = ReadU16_LE((uint8_t*)&fmt->wFormatTag, 0);
+            fmt->wFormatTag = ReadU16_LE(&fmt->wFormatTag);
             if ((fmt->wFormatTag != WAVE_CODEC_PCM) && (fmt->wFormatTag != WAVE_CODEC_IMA_ADPCM)) FATAL_ERROR("Only PCM and IMA-ADPCM files are supported\n");
-            fmt->wChannels = ReadU16_LE((uint8_t*)&fmt->wChannels, 0);
+            fmt->wChannels = ReadU16_LE(&fmt->wChannels);
             if (fmt->wChannels != 1) FATAL_ERROR("Only mono files supported\n");
-            samplingRate = ReadU32_LE((uint8_t*)&fmt->dwSamplesPerSec, 0);
+            samplingRate = ReadU32_LE(&fmt->dwSamplesPerSec);
             clockTime = 16756991 / samplingRate;
-            fmt->wBlockAlign = ReadU16_LE((uint8_t*)&fmt->wBlockAlign, 0);
-            fmt->wBitsPerSample = ReadU16_LE((uint8_t*)&fmt->wBitsPerSample, 0);
+            fmt->wBlockAlign = ReadU16_LE(&fmt->wBlockAlign);
+            fmt->wBitsPerSample = ReadU16_LE(&fmt->wBitsPerSample);
         }
         else if (memcmp(wav + offset, "data", 4) == 0)
         {
@@ -221,12 +221,12 @@ uint8_t *WavToSwav(uint8_t *wav, uint32_t wavSize, uint32_t *swavSize, uint8_t e
         else if (memcmp(wav + offset, "smpl", 4) == 0)
         {
             smpl = (struct WavChunk_smpl*)(wav + offset);
-            loop = 0 < ReadU32_LE((uint8_t*)&smpl->numLoops, 0);
+            loop = 0 < ReadU32_LE(&smpl->numLoops);
             if (loop)
             {
                 sampleLoop = (struct Wav_SampleLoop*)(wav + offset + sizeof(struct WavChunk_smpl));
-                sampleLoop->start = ReadU32_LE((uint8_t*)&sampleLoop->start, 0);
-                sampleLoop->end = ReadU32_LE((uint8_t*)&sampleLoop->end, 0);
+                sampleLoop->start = ReadU32_LE(&sampleLoop->start);
+                sampleLoop->end = ReadU32_LE(&sampleLoop->end);
                 // pad
                 sampleLoop->start += (swavTypeSamplesPer64bit[encodeType] - sampleLoop->start) % swavTypeSamplesPer64bit[encodeType];
                 sampleLoop->end += (swavTypeSamplesPer64bit[encodeType] - sampleLoop->end) % swavTypeSamplesPer64bit[encodeType];
@@ -238,7 +238,7 @@ uint8_t *WavToSwav(uint8_t *wav, uint32_t wavSize, uint32_t *swavSize, uint8_t e
         }
         else if (memcmp(wav + offset, "SWAV", 4) == 0) // cheat here
         {
-            clockTime = ReadU32_LE(wav, offset + 0x08);
+            clockTime = ReadU32_LE(wav + offset + 0x08);
         }
         offset += 0x08 + chunkSize + (chunkSize % 2); // chunk ID, size, and padding are not included in wav chunk size
     }
@@ -278,13 +278,13 @@ uint8_t *WavToSwav(uint8_t *wav, uint32_t wavSize, uint32_t *swavSize, uint8_t e
     // Write DATA Header
     struct SwavChunk_DATA *swavData = (struct SwavChunk_DATA*)(swav + sizeof(struct NitroChunk));
     memcpy(&swavData->chunkID, "DATA", 4);
-    WriteU32_LE((uint8_t*)&swavData->size, 0, dataSize + 0x14);
+    WriteU32_LE(&swavData->size, dataSize + 0x14);
     swavData->encodeType = encodeType;
     swavData->loop = loop;
-    WriteU16_LE((uint8_t*)&swavData->samplingRate, 0, samplingRate);
-    WriteU16_LE((uint8_t*)&swavData->clockTime, 0, clockTime);
-    WriteU16_LE((uint8_t*)&swavData->loopStart, 0, (loopStart >> loopShift[encodeType]) + (encodeType == SWAV_IMA_ADPCM));
-    WriteU32_LE((uint8_t*)&swavData->loopSize, 0, loopSize >> loopShift[encodeType]);
+    WriteU16_LE(&swavData->samplingRate, samplingRate);
+    WriteU16_LE(&swavData->clockTime, clockTime);
+    WriteU16_LE(&swavData->loopStart, (loopStart >> loopShift[encodeType]) + (encodeType == SWAV_IMA_ADPCM));
+    WriteU32_LE(&swavData->loopSize, loopSize >> loopShift[encodeType]);
 
     uint8_t *audioOut = swav + sizeof(struct NitroChunk) + sizeof(struct SwavChunk_DATA);
 
@@ -370,7 +370,7 @@ uint8_t *WavToSwav(uint8_t *wav, uint32_t wavSize, uint32_t *swavSize, uint8_t e
             case SWAV_IMA_ADPCM:
                 struct IMA_Prediction prediction;
                 prediction.value = 0;
-                prediction.index = InitialStepIndex(0, ReadU16_LE(audioPointer, 0));
+                prediction.index = InitialStepIndex(0, ReadU16_LE(audioPointer));
 
                 audioOut[0] = 0;
                 audioOut[1] = 0;
@@ -379,7 +379,7 @@ uint8_t *WavToSwav(uint8_t *wav, uint32_t wavSize, uint32_t *swavSize, uint8_t e
                 int i = 8;
                 while (audioPointer < mediumAudio + numSamples*2)
                 {
-                    uint8_t audioSample = IMA_ADPCM_Encode(ReadU16_LE(audioPointer, 0), &prediction);
+                    uint8_t audioSample = IMA_ADPCM_Encode(ReadU16_LE(audioPointer), &prediction);
                     audioPointer += 2;
                     if (i % 2)
                     {
@@ -419,13 +419,13 @@ uint8_t *WavToSwav(uint8_t *wav, uint32_t wavSize, uint32_t *swavSize, uint8_t e
 uint8_t *SwavToWav(uint8_t *swav, uint32_t swavSize, uint32_t *wavSize, bool pcm16)
 {
     // read swav file
-    size_t offset = ReadU16_LE(swav, 0x0C);
+    size_t offset = ReadU16_LE(swav + 0x0C);
     struct SwavChunk_DATA *sData = NULL;
     uint8_t *swavAudio;
 
     while (offset + 0x08 < swavSize)
     {
-        uint32_t chunkSize = ReadU32_LE(swav, offset + 0x04);
+        uint32_t chunkSize = ReadU32_LE(swav + offset + 0x04);
         if ((swavSize < offset + chunkSize) || (chunkSize < 8))
         {
             FATAL_ERROR("Error reading chunk size\n");
@@ -434,10 +434,10 @@ uint8_t *SwavToWav(uint8_t *swav, uint32_t swavSize, uint32_t *wavSize, bool pcm
         {
             sData = (struct SwavChunk_DATA*)(swav + offset);
             sData->size = chunkSize - sizeof(struct SwavChunk_DATA);
-            sData->samplingRate = ReadU16_LE((uint8_t*)&sData->samplingRate, 0);
-            sData->clockTime = ReadU16_LE((uint8_t*)&sData->clockTime, 0);
-            sData->loopStart = (ReadU16_LE((uint8_t*)&sData->loopStart, 0) - (sData->encodeType == SWAV_IMA_ADPCM)) << loopShift[sData->encodeType];
-            sData->loopSize = ReadU32_LE((uint8_t*)&sData->loopSize, 0) << loopShift[sData->encodeType];
+            sData->samplingRate = ReadU16_LE(&sData->samplingRate);
+            sData->clockTime = ReadU16_LE(&sData->clockTime);
+            sData->loopStart = (ReadU16_LE(&sData->loopStart) - (sData->encodeType == SWAV_IMA_ADPCM)) << loopShift[sData->encodeType];
+            sData->loopSize = ReadU32_LE(&sData->loopSize) << loopShift[sData->encodeType];
             swavAudio = swav + offset + sizeof(struct SwavChunk_DATA);
         }
         offset += chunkSize;
@@ -485,22 +485,22 @@ uint8_t *SwavToWav(uint8_t *swav, uint32_t swavSize, uint32_t *wavSize, bool pcm
     // Write WAV File
     struct WavChunk_RIFF *riff = (struct WavChunk_RIFF*)wav;
     memcpy(&riff->chunkID, "RIFF", 4);
-    WriteU32_LE((uint8_t*)&riff->fileSize, 0, *wavSize - 0x08);
+    WriteU32_LE(&riff->fileSize, *wavSize - 0x08);
     memcpy(&riff->formType, "WAVE", 4);
 
     struct WavChunk_fmt *fmt = (struct WavChunk_fmt*)(wav + sizeof(struct WavChunk_RIFF));
     memcpy(&fmt->chunkID, "fmt ", 4);
-    WriteU32_LE((uint8_t*)&fmt->size, 0, sizeof(struct WavChunk_fmt) - 0x08);
-    WriteU16_LE((uint8_t*)&fmt->wFormatTag, 0, formatTag);
-    WriteU16_LE((uint8_t*)&fmt->wChannels, 0, 1);
-    WriteU32_LE((uint8_t*)&fmt->dwSamplesPerSec, 0, sData->samplingRate);
-    WriteU32_LE((uint8_t*)&fmt->dwAvgBytesPerSec, 0, sData->samplingRate * blockAlign);
-    WriteU16_LE((uint8_t*)&fmt->wBlockAlign, 0, blockAlign);
-    WriteU16_LE((uint8_t*)&fmt->wBitsPerSample, 0, bitsPerSample);
+    WriteU32_LE(&fmt->size, sizeof(struct WavChunk_fmt) - 0x08);
+    WriteU16_LE(&fmt->wFormatTag, formatTag);
+    WriteU16_LE(&fmt->wChannels, 1);
+    WriteU32_LE(&fmt->dwSamplesPerSec, sData->samplingRate);
+    WriteU32_LE(&fmt->dwAvgBytesPerSec, sData->samplingRate * blockAlign);
+    WriteU16_LE(&fmt->wBlockAlign, blockAlign);
+    WriteU16_LE(&fmt->wBitsPerSample, bitsPerSample);
 
     struct WavChunk_data *wData = (struct WavChunk_data*)(wav + sizeof(struct WavChunk_RIFF) + sizeof(struct WavChunk_fmt));
     memcpy(&wData->chunkID, "data", 4);
-    WriteU32_LE((uint8_t*)&wData->size, 0, sizeof(struct WavChunk_data) - 0x08 + wavAudioSize);
+    WriteU32_LE(&wData->size, sizeof(struct WavChunk_data) - 0x08 + wavAudioSize);
 
     // write data stream
     uint8_t *wavAudio = wav + sizeof(struct WavChunk_RIFF) + sizeof(struct WavChunk_fmt) + sizeof(struct WavChunk_data);
@@ -529,7 +529,7 @@ uint8_t *SwavToWav(uint8_t *swav, uint32_t swavSize, uint32_t *wavSize, bool pcm
         if (pcm16)
         {
             struct IMA_Prediction prediction;
-            prediction.value = ReadU16_LE(swavAudio, 0);
+            prediction.value = ReadU16_LE(swavAudio);
             prediction.index = swavAudio[2]; // TODO: clamp these
             inAudio += 0x04;
             int i = 0;
@@ -537,24 +537,11 @@ uint8_t *SwavToWav(uint8_t *swav, uint32_t swavSize, uint32_t *wavSize, bool pcm
             {
                 char bottomNibble = *inAudio & 0x0F;
                 char topNibble = (*inAudio++ >> 4) & 0x0F;
-                WriteU16_LE(wavAudio, i, IMA_ADPCM_Decode(bottomNibble, &prediction));
+                WriteU16_LE(wavAudio + i, IMA_ADPCM_Decode(bottomNibble, &prediction));
                 i += 2;
-                WriteU16_LE(wavAudio, i, IMA_ADPCM_Decode(topNibble, &prediction));
+                WriteU16_LE(wavAudio + i, IMA_ADPCM_Decode(topNibble, &prediction));
                 i += 2;
             }
-            /*if ((InitialStepIndex(0, ReadU16_LE(wavAudio, 0)) != swavAudio[2]) && (swavAudio[2] == 0x2f) && (swavAudio[4] == 0x18))
-            {
-                uint16_t initVal;
-                WriteU16_LE(wavAudio, 0, InitialValue(swavAudio[4], swavAudio[2], ReadU16_LE(wavAudio, 0), &initVal));
-                prediction.value = initVal;
-                prediction.index = InitialStepIndex(0, ReadU16_LE(wavAudio, 0));
-                uint16_t temp = 0;
-                temp |= IMA_ADPCM_Encode(ReadU16_LE(wavAudio, 0), &prediction);
-                temp |= IMA_ADPCM_Encode(ReadU16_LE(wavAudio, 2), &prediction) << 4;
-                temp |= IMA_ADPCM_Encode(ReadU16_LE(wavAudio, 4), &prediction) << 8;
-                temp |= IMA_ADPCM_Encode(ReadU16_LE(wavAudio, 6), &prediction) << 12;
-                printf("%x\t%x\t%x\t%x\n", temp & 0xFF, (temp >> 8) & 0xFF, swavAudio[4], swavAudio[5]);
-            }*/
             wavAudio += i;
         }
         else
@@ -579,7 +566,7 @@ uint8_t *SwavToWav(uint8_t *swav, uint32_t swavSize, uint32_t *wavSize, bool pcm
     {
         struct WavChunk_smpl *smpl = (struct WavChunk_smpl*)wavAudio; // place after audio
         memcpy(&smpl->chunkID, "smpl", 4);
-        WriteU32_LE((uint8_t*)&smpl->size, 0, sizeof(struct WavChunk_smpl) + sizeof(struct Wav_SampleLoop) - 0x08);
+        WriteU32_LE(&smpl->size, sizeof(struct WavChunk_smpl) + sizeof(struct Wav_SampleLoop) - 0x08);
         smpl->manufacturer = 0;
         smpl->product = 0;
         smpl->samplePeriod = 0;
@@ -587,15 +574,15 @@ uint8_t *SwavToWav(uint8_t *swav, uint32_t swavSize, uint32_t *wavSize, bool pcm
         smpl->MIDI_pitchFraction = 0;
         smpl->SMPTE_format = 0;
         smpl->SMPTE_offset = 0;
-        WriteU32_LE((uint8_t*)&smpl->numLoops, 0, 1);
+        WriteU32_LE(&smpl->numLoops, 1);
         smpl->sampleData = 0;
         wavAudio += sizeof(struct WavChunk_smpl);
 
         struct Wav_SampleLoop *sampleLoop = (struct Wav_SampleLoop*)wavAudio;
         sampleLoop->id = 0;
         sampleLoop->type = 0;
-        WriteU32_LE((uint8_t*)&sampleLoop->start, 0, sData->loopStart);
-        WriteU32_LE((uint8_t*)&sampleLoop->end, 0, sData->loopStart + sData->loopSize - 1);
+        WriteU32_LE(&sampleLoop->start, sData->loopStart);
+        WriteU32_LE(&sampleLoop->end, sData->loopStart + sData->loopSize - 1);
         sampleLoop->fraction = 0;
         sampleLoop->repititions = 0;
         wavAudio += sizeof(struct Wav_SampleLoop);
@@ -605,8 +592,8 @@ uint8_t *SwavToWav(uint8_t *swav, uint32_t swavSize, uint32_t *wavSize, bool pcm
     {
         // only necessary for matching original swav
         memcpy(wavAudio, "SWAV", 4);
-        WriteU32_LE(wavAudio + 0x04, 0, 4);
-        WriteU32_LE(wavAudio + 0x08, 0, sData->clockTime);
+        WriteU32_LE(wavAudio + 0x04, 4);
+        WriteU32_LE(wavAudio + 0x08, sData->clockTime);
     }
 
     return wav;
@@ -641,7 +628,7 @@ void ConvertWavToSwav(int argc, char **argv)
         }
     }
 
-    int wavSize;
+    uint32_t wavSize;
     uint8_t *wav = ReadWholeFile(inputPath, &wavSize);
     struct WavChunk_RIFF *riff = (struct WavChunk_RIFF*)wav;
     if (memcmp(&riff->chunkID, "RIFF", 4) != 0) FATAL_ERROR("%s is not a RIFF file.\n", inputPath);
@@ -683,7 +670,7 @@ void ConvertSwavToWav(int argc, char **argv)
         }
     }
 
-    int swavSize;
+    uint32_t swavSize;
     uint8_t *swav = ReadWholeFile(inputPath, &swavSize);
     if (memcmp(swav, "SWAV", 4) != 0) FATAL_ERROR("%s is not a valid swav file.\n", inputPath);
 

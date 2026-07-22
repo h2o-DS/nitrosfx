@@ -626,7 +626,7 @@ static uint32_t Sseq_To_Midi_Modulation_Delay(struct EventPackage *eventPackage,
 
     uint8_t *eventData = malloc(3);
     if (eventData == NULL) FATAL_ERROR("Error allocating eventData\n");
-    short modDelay = ReadU16_LE(sseqPos, 0);
+    short modDelay = ReadU16_LE(sseqPos);
     bool compress = (modDelay < -128) || (modDelay > 127);
     if (compress) modDelay /= 10;
     eventData[0] = (MIDI_EVENT_CONTROLLER << 4) | track;
@@ -643,12 +643,12 @@ static uint32_t Sseq_To_Midi_Tempo(struct EventPackage *eventPackage, uint32_t t
 
     uint8_t *eventData = malloc(6);
     if (eventData == NULL) FATAL_ERROR("Error allocating eventData\n");
-    uint16_t tempo = ReadU16_LE(sseqPos, 0);
+    uint16_t tempo = ReadU16_LE(sseqPos);
     if (tempo == 0) FATAL_ERROR("Tempo must be non-zero\n");
     eventData[0] = MIDI_META_EVENT;
     eventData[1] = MIDI_META_TEMPO;
     eventData[2] = 3;
-    WriteU24_BE(eventData + 3, 0, 60000000 / tempo);
+    WriteU24_BE(eventData + 3, 60000000 / tempo);
     PackEvent(eventPackage, time, address, eventData, 6);
 
     return 2;
@@ -660,7 +660,7 @@ static uint32_t Sseq_To_Midi_Sweep_Pitch(struct EventPackage *eventPackage, uint
 
     uint8_t *eventData = malloc(3);
     if (eventData == NULL) FATAL_ERROR("Error allocating eventData\n");
-    short sweepPitch = ReadU16_LE(sseqPos, 0);
+    short sweepPitch = ReadU16_LE(sseqPos);
     bool compress = ((sweepPitch + 64) < 0) || ((sweepPitch + 64) > 127);
     if (compress) sweepPitch /= 24;
     eventData[0] = (MIDI_EVENT_CONTROLLER << 4) | track;
@@ -969,7 +969,7 @@ static void Midi_Controller_To_Sseq_Modulation_Delay_10(struct EventPackage *eve
     if (eventData == NULL) FATAL_ERROR("Error allocating eventData\n");
     eventData[0] = SSEQ_COMMAND_MODULATION_DELAY;
     short modDelay = (short)value * 10;
-    WriteU16_LE(eventData + 1, 0, modDelay);
+    WriteU16_LE(eventData + 1, modDelay);
     PackEvent(eventPackage, 0, 0, eventData, 3);
 }
 
@@ -979,7 +979,7 @@ static void Midi_Controller_To_Sseq_Sweep_Pitch(struct EventPackage *eventPackag
     if (eventData == NULL) FATAL_ERROR("Error allocating eventData\n");
     short sweepPitch = (short)value - 64;
     eventData[0] = SSEQ_COMMAND_SWEEP_PITCH;
-    WriteU16_LE(eventData + 1, 0, sweepPitch);
+    WriteU16_LE(eventData + 1, sweepPitch);
     PackEvent(eventPackage, 0, 0, eventData, 3);
 }
 
@@ -989,7 +989,7 @@ static void Midi_Controller_To_Sseq_Sweep_Pitch_24(struct EventPackage *eventPac
     if (eventData == NULL) FATAL_ERROR("Error allocating eventData\n");
     short sweepPitch = ((short)value - 64) * 24;
     eventData[0] = SSEQ_COMMAND_SWEEP_PITCH;
-    WriteU16_LE(eventData + 1, 0, sweepPitch);
+    WriteU16_LE(eventData + 1, sweepPitch);
     PackEvent(eventPackage, 0, 0, eventData, 3);
 }
 
@@ -1273,14 +1273,14 @@ uint8_t *MidiToSseq(uint8_t *midi, uint32_t midiSize, uint32_t *sseqSize)
 
     struct MidiChunk_MThd *mthd = (struct MidiChunk_MThd*)midi;
     if (memcmp(&mthd->chunkID, "MThd", 4) != 0) FATAL_ERROR("Not a valid MIDI file.\n");
-    uint16_t midiFormat = ReadU16_BE((uint8_t*)&mthd->format, 0);
-    uint16_t nTracks = ReadU16_BE((uint8_t*)&mthd->nTracks, 0);
+    uint16_t midiFormat = ReadU16_BE(&mthd->format);
+    uint16_t nTracks = ReadU16_BE(&mthd->nTracks);
 
     if (midiFormat > SIMULTANEOUS_TRACKS) FATAL_ERROR("Incompatible MIDI format %d\n", midiFormat);
-    uint8_t *midiPos = midi + ReadU32_BE((uint8_t*)&mthd->size, 0) + 0x08;
+    uint8_t *midiPos = midi + ReadU32_BE(&mthd->size) + 0x08;
     uint8_t *midiEnd = midi + midiSize;
 
-    int variableLength;
+    uint8_t variableLength;
     struct EventPackage **eventTracks = calloc(MAX_TRACKS, sizeof(struct EventPackage*));
     if (eventTracks == NULL) FATAL_ERROR("Error allocating eventTracks\n");
     uint8_t *trackIDs = malloc(nTracks * sizeof(uint8_t));
@@ -1290,7 +1290,7 @@ uint8_t *MidiToSseq(uint8_t *midi, uint32_t midiSize, uint32_t *sseqSize)
         struct MidiChunk_MTrk *mtrk = (struct MidiChunk_MTrk*)midiPos;
         if (memcmp(&mtrk->chunkID, "MTrk", 4) != 0) FATAL_ERROR("Error reading track.\n");
         uint8_t *trackPos = midiPos + sizeof(struct MidiChunk_MTrk);
-        midiPos += ReadU32_BE((uint8_t*)&mtrk->size, 0) + 8;
+        midiPos += ReadU32_BE(&mtrk->size) + 8;
         if (midiPos > midiEnd) FATAL_ERROR("Error reading track size\n");
         trackIDs[track] = track;
 
@@ -1413,11 +1413,11 @@ uint8_t *MidiToSseq(uint8_t *midi, uint32_t midiSize, uint32_t *sseqSize)
                             uint8_t metaSize = *trackPos++;
                             if (metaID == MIDI_META_TEMPO)
                             {
-                                uint32_t tempo = ReadU24_BE(trackPos, 0);
+                                uint32_t tempo = ReadU24_BE(trackPos);
                                 eventData = malloc(3);
                                 if (eventData == NULL) FATAL_ERROR("Error allocating tempo eventData\n");
                                 eventData[0] = SSEQ_COMMAND_TEMPO;
-                                WriteU16_LE(eventData + 1, 0, 60000000 / tempo);
+                                WriteU16_LE(eventData + 1, 60000000 / tempo);
                                 PackEvent(eventTracks[track], time, 0, eventData, 3);
                             }
                             else if (metaID == MIDI_META_TEXT)
@@ -1509,8 +1509,7 @@ uint8_t *MidiToSseq(uint8_t *midi, uint32_t midiSize, uint32_t *sseqSize)
     WriteNitroChunk(sseq, "SSEQ", 0); // set true size later
     struct SseqChunk_DATA *data = (struct SseqChunk_DATA*)(sseq + sizeof(struct NitroChunk));
     memcpy(&data->chunkID, "DATA", 4);
-    WriteU32_LE((uint8_t*)&data->size, 0, 0); // set true size later
-    WriteU32_LE((uint8_t*)&data->dataOffset, 0, SSEQ_SEQUENCE_OFFSET);
+    WriteU32_LE(&data->dataOffset, SSEQ_SEQUENCE_OFFSET);
     *sseqSize = sizeof(struct NitroChunk) + sizeof(struct SseqChunk_DATA);
     uint8_t *sseqPos = sseq + *sseqSize;
 
@@ -1532,7 +1531,7 @@ uint8_t *MidiToSseq(uint8_t *midi, uint32_t midiSize, uint32_t *sseqSize)
             sseqPos += 3;
             *sseqSize += 5;
         }
-        WriteU16_LE(trackUsedAddress, 0, tracksUsed);
+        WriteU16_LE(trackUsedAddress, tracksUsed);
     }
 
     uint32_t *labelPointers = malloc(100 * sizeof(uint32_t));
@@ -1540,7 +1539,7 @@ uint8_t *MidiToSseq(uint8_t *midi, uint32_t midiSize, uint32_t *sseqSize)
     if (labelUses == NULL) FATAL_ERROR("Error allocating memory for label uses package\n");
     for (int track = 0; track < nTracks; track++)
     {
-        if (track > 0) WriteU24_LE(trackAddresses[track], 0, *sseqSize - SSEQ_SEQUENCE_OFFSET);
+        if (track > 0) WriteU24_LE(trackAddresses[track], *sseqSize - SSEQ_SEQUENCE_OFFSET);
 
         struct Event *event = eventTracks[track]->head;
         while (event != NULL)
@@ -1590,7 +1589,7 @@ uint8_t *MidiToSseq(uint8_t *midi, uint32_t midiSize, uint32_t *sseqSize)
             struct Event *event = labelUses[l]->head;
             while (event != NULL)
             {
-                WriteU24_LE(event->data, 0, labelPointers[l]);
+                WriteU24_LE(event->data, labelPointers[l]);
                 struct Event *eventF = event;
                 event = event->next;
                 free(eventF);
@@ -1602,8 +1601,8 @@ uint8_t *MidiToSseq(uint8_t *midi, uint32_t midiSize, uint32_t *sseqSize)
     free(labelUses);
 
     struct NitroChunk *header = (struct NitroChunk*)sseq;
-    WriteU32_LE((uint8_t*)&header->fileSize, 0, *sseqSize);
-    WriteU32_LE((uint8_t*)&data->size, 0, *sseqSize - sizeof(struct NitroChunk));
+    WriteU32_LE(&header->fileSize, *sseqSize);
+    WriteU32_LE(&data->size, *sseqSize - sizeof(struct NitroChunk));
 
     return sseq;
 }
@@ -1616,17 +1615,17 @@ uint8_t *SseqToMidi(uint8_t *sseq, uint32_t sseqSize, uint32_t *midiSize)
     struct NitroChunk *header = (struct NitroChunk*)sseq;
     if (memcmp(&header->chunkID, "SSEQ", 4) != 0) FATAL_ERROR("Not a valid SSEQ file\n");
     uint8_t *sseqEnd = sseq + sseqSize;
-    uint8_t *sseqPos = sseq + ReadU16_LE((uint8_t*)&header->size, 0);
+    uint8_t *sseqPos = sseq + ReadU16_LE(&header->size);
 
     struct SseqChunk_DATA *data = (struct SseqChunk_DATA*)sseqPos;
     if (memcmp(&data->chunkID, "DATA", 4) != 0) FATAL_ERROR("Error reading DATA chunk\n");
-    uint32_t sequenceOffset = ReadU32_LE((uint8_t*)&data->dataOffset, 0);
+    uint32_t sequenceOffset = ReadU32_LE(&data->dataOffset);
     sseqPos = sseq + sequenceOffset; // go to data
 
     uint16_t tracksUsed = 1; // bitmask for 16 tracks
     if (*sseqPos == SSEQ_COMMAND_TRACKS_USED)
     {
-        tracksUsed = ReadU16_LE(++sseqPos, 0);
+        tracksUsed = ReadU16_LE(++sseqPos);
         sseqPos += 2;
     }
     struct EventPackage **eventTracks = calloc(MAX_TRACKS, sizeof(struct EventPackage*));
@@ -1642,14 +1641,14 @@ uint8_t *SseqToMidi(uint8_t *sseq, uint32_t sseqSize, uint32_t *midiSize)
         {
             if (*sseqPos != SSEQ_COMMAND_TRACK_ADDRESS) FATAL_ERROR("Missing address for track %d\n", track);
             sseqPos += 2;
-            trackAddresses[numTracks] = sseq + ReadU24_LE(sseqPos, 0) + sequenceOffset;
+            trackAddresses[numTracks] = sseq + ReadU24_LE(sseqPos) + sequenceOffset;
             sseqPos += 3;
         }
         numTracks++;
     }
     trackAddresses[0] = sseqPos;
 
-    int variableLength;
+    uint8_t variableLength;
     int tracksRead = 0;
     uint32_t *labels = malloc(100 * sizeof(uint32_t)); // arbitrary allocation
     if (labels == NULL) FATAL_ERROR("Error allocating labels\n");
@@ -1806,7 +1805,7 @@ uint8_t *SseqToMidi(uint8_t *sseq, uint32_t sseqSize, uint32_t *midiSize)
             }
             else if ((identifier == SSEQ_COMMAND_JUMP) || (identifier == SSEQ_COMMAND_CALL))
             {
-                uint32_t newAddress = ReadU24_LE(sseqPos, 0);
+                uint32_t newAddress = ReadU24_LE(sseqPos);
                 sseqPos += 3;
                 int labelIndex;
                 for (labelIndex = 0; labelIndex < numLabels; labelIndex++)
@@ -1853,10 +1852,10 @@ uint8_t *SseqToMidi(uint8_t *sseq, uint32_t sseqSize, uint32_t *midiSize)
     if (midi == NULL) FATAL_ERROR("Error allocating midi\n");
     struct MidiChunk_MThd *mthd = (struct MidiChunk_MThd*)midi;
     memcpy(&mthd->chunkID, "MThd", 4);
-    WriteU32_BE((uint8_t*)&mthd->size, 0, 6);
-    WriteU16_BE((uint8_t*)&mthd->format, 0, SIMULTANEOUS_TRACKS);
-    WriteU16_BE((uint8_t*)&mthd->nTracks, 0, numTracks);
-    WriteU16_BE((uint8_t*)&mthd->tickDiv, 0, 0x0030);
+    WriteU32_BE(&mthd->size, 6);
+    WriteU16_BE(&mthd->format, SIMULTANEOUS_TRACKS);
+    WriteU16_BE(&mthd->nTracks, numTracks);
+    WriteU16_BE(&mthd->tickDiv, 0x0030);
     *midiSize = 0x0E;
     uint8_t *midiPos = midi + *midiSize;
     uint8_t currentLabel = 0;
@@ -1934,7 +1933,7 @@ uint8_t *SseqToMidi(uint8_t *sseq, uint32_t sseqSize, uint32_t *midiSize)
         }
         free(eventTracks[track]);
 
-        WriteU32_BE((uint8_t*)&mtrk->size, 0, trackSize - sizeof(struct MidiChunk_MTrk));
+        WriteU32_BE(&mtrk->size, trackSize - sizeof(struct MidiChunk_MTrk));
         *midiSize += trackSize;
     }
     free(eventTracks);
@@ -1955,7 +1954,7 @@ void ConvertMidiToSseq(int argc, char **argv)
         FATAL_ERROR("Unrecognized argument: \"%s\"\n", argv[i]);
     }
 
-    int midiSize;
+    uint32_t midiSize;
     uint8_t *midi = ReadWholeFile(inputPath, &midiSize);
 
     uint32_t sseqSize;
@@ -1981,7 +1980,7 @@ void ConvertSseqToMidi(int argc, char **argv)
         FATAL_ERROR("Unrecognized argument: \"%s\"\n", argv[i]);
     }
 
-    int sseqSize;
+    uint32_t sseqSize;
     uint8_t *sseq = ReadWholeFile(inputPath, &sseqSize);
 
     uint32_t midiSize;
