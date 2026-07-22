@@ -131,7 +131,7 @@ void ConvertTxtToSbnk(int argc, char **argv)
             {
                 FATAL_ERROR("Read error in section %d, NULL\n", sbnkPackage->count);
             }
-            WriteU16_BE(instrumentData, push, strtod(s, NULL));
+            WriteU16_LE(instrumentData, push, strtod(s, NULL));
             for (int i = 0; i < 2; i++)
             {
                 s = strtok(NULL, delimiter);
@@ -139,7 +139,7 @@ void ConvertTxtToSbnk(int argc, char **argv)
                 {
                     FATAL_ERROR("Read error in section %d, NULL\n", sbnkPackage->count);
                 }
-                WriteU16_BE(instrumentData, i * 2 + 2 + push, strtod(s, NULL));
+                WriteU16_LE(instrumentData, i * 2 + 2 + push, strtod(s, NULL));
             }
             for (int i = 0; i < 6; i++)
             {
@@ -214,7 +214,7 @@ void ConvertTxtToSbnk(int argc, char **argv)
                         {
                             FATAL_ERROR("Read error in section %d, PSG\n", sbnkPackage->count);
                         }
-                        WriteU16_BE(instrumentData, i * 2, strtod(s, NULL));
+                        WriteU16_LE(instrumentData, i * 2, strtod(s, NULL));
                     }
                     for (int i = 0; i < 6; i++)
                     {
@@ -276,9 +276,9 @@ void ConvertTxtToSbnk(int argc, char **argv)
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0x00, 0x00, 0x00, 0x00
     };
-    WriteU32_BE(sbnkHeader, 0x08, sbnkPackage->size); // file size
-    WriteU32_BE(sbnkHeader, 0x14, sbnkPackage->size - 0x10); // data size
-    WriteU32_BE(sbnkHeader, 0x38, sbnkPackage->count); // number of instruments
+    WriteU32_LE(sbnkHeader, 0x08, sbnkPackage->size); // file size
+    WriteU32_LE(sbnkHeader, 0x14, sbnkPackage->size - 0x10); // data size
+    WriteU32_LE(sbnkHeader, 0x38, sbnkPackage->count); // number of instruments
 
     FILE *outFile = fopen(outputPath, "wb");
     if (outFile == NULL)
@@ -304,7 +304,7 @@ void ConvertTxtToSbnk(int argc, char **argv)
         else
         {
             absolutePointer[0] = bnk->instrumentsType;
-            WriteU16_BE(absolutePointer, 1, headerSize + bnk->address);
+            WriteU16_LE(absolutePointer, 1, headerSize + bnk->address);
             fwrite(absolutePointer, 1, 4, outFile);
             bnk = bnk->next;
             while ((bnk != NULL) && (bnk->size == 0)) // check for "same as above"
@@ -371,7 +371,7 @@ void ConvertSbnkToTxt(int argc, char **argv)
     {
         FATAL_ERROR("Not a valid sbnk file.\n");
     }
-    uint32_t numInstruments = ReadU32_BE(sbnkFile, 0x38);
+    uint32_t numInstruments = ReadU32_LE(sbnkFile, 0x38);
 
     // collect data elements
     struct InstrumentStream *instrumentStream = malloc(sizeof(struct InstrumentStream) * numInstruments);
@@ -379,7 +379,7 @@ void ConvertSbnkToTxt(int argc, char **argv)
     {
         instrumentStream[i].headerIndex = i;
         instrumentStream[i].instrumentsType = ReadU8(sbnkFile, 0x3C + i * 4);
-        instrumentStream[i].address = ReadU16_BE(sbnkFile, 0x3D + i * 4);
+        instrumentStream[i].address = ReadU16_LE(sbnkFile, 0x3D + i * 4);
     }
 
     // sort by addresses
@@ -441,8 +441,8 @@ void ConvertSbnkToTxt(int argc, char **argv)
             snprintf(line, 58, "%d, %s, %d, %d, %d, %d, %d, %d, %d, %d\r\n",
                 headerIndex,
                 instrumentsTypeStrings[instrumentType],
-                ReadU16_BE(sbnkFile, address),
-                ReadU16_BE(sbnkFile, address + 2),
+                ReadU16_LE(sbnkFile, address),
+                ReadU16_LE(sbnkFile, address + 2),
                 ReadU8(sbnkFile, address + 4),
                 ReadU8(sbnkFile, address + 5),
                 ReadU8(sbnkFile, address + 6),
@@ -489,9 +489,9 @@ void ConvertSbnkToTxt(int argc, char **argv)
         {
             line = malloc(53);
             snprintf(line, 53, "\t%d, %d, %d, %d, %d, %d, %d, %d, %d\r\n",
-                ReadU16_BE(sbnkFile, address),
-                ReadU16_BE(sbnkFile, address + 2),
-                ReadU16_BE(sbnkFile, address + 4),
+                ReadU16_LE(sbnkFile, address),
+                ReadU16_LE(sbnkFile, address + 2),
+                ReadU16_LE(sbnkFile, address + 4),
                 ReadU8(sbnkFile, address + 6),
                 ReadU8(sbnkFile, address + 7),
                 ReadU8(sbnkFile, address + 8),

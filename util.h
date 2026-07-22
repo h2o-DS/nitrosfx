@@ -22,7 +22,8 @@ do {                                        \
 
 #define PADDINGSIZE(length, padTo) (padTo - length) % padTo
 
-struct NitroChunk {
+struct NitroChunk
+{
     uint32_t chunkID;
     uint16_t magic1; // endianness?
     uint16_t magic2;
@@ -31,20 +32,23 @@ struct NitroChunk {
     uint16_t magic3; // version?
 };
 
-struct DataFile {
+struct DataFile
+{
     struct DataFile *next;
     unsigned char *data;
     uint32_t size;
 };
 
-struct DataPackage {
+struct DataPackage
+{
     struct DataFile *head;
     struct DataFile *tail;
     uint32_t count;
     uint32_t size;
 };
 
-struct StrVec {
+struct StrVec
+{
     char **s;
     size_t count;
     size_t capacity;
@@ -54,18 +58,21 @@ bool ParseNumber(char *s, char **end, int radix, int *intValue);
 char *GetFileExtension(char *path);
 unsigned char *ReadWholeFile(char *path, int *size);
 uint8_t ReadU8(const unsigned char *ptr, const size_t offset);
-uint16_t ReadU16_BE(const unsigned char *ptr, const size_t offset);
 uint16_t ReadU16_LE(const unsigned char *ptr, const size_t offset);
-uint32_t ReadU24_BE(const unsigned char *ptr, const size_t offset);
+uint16_t ReadU16_BE(const unsigned char *ptr, const size_t offset);
 uint32_t ReadU24_LE(const unsigned char *ptr, const size_t offset);
-uint32_t ReadU32_BE(const unsigned char *ptr, const size_t offset);
+uint32_t ReadU24_BE(const unsigned char *ptr, const size_t offset);
 uint32_t ReadU32_LE(const unsigned char *ptr, const size_t offset);
-uint32_t ReadVariableLength(const unsigned char *ptr, size_t *offset);
+uint32_t ReadU32_BE(const unsigned char *ptr, const size_t offset);
+uint32_t ReadVariableLength(const uint8_t *ptr, int *size);
 void WriteU8(unsigned char *ptr, const size_t offset, __uint8_t value);
-void WriteU16_BE(unsigned char *ptr, const size_t offset, __uint16_t value);
+void WriteU16_LE(unsigned char *ptr, const size_t offset, uint16_t value);
+void WriteU16_BE(unsigned char *ptr, const size_t offset, uint16_t value);
+void WriteU24_LE(unsigned char *ptr, const size_t offset, uint32_t value);
 void WriteU24_BE(unsigned char *ptr, const size_t offset, uint32_t value);
+void WriteU32_LE(unsigned char *ptr, const size_t offset, uint32_t value);
 void WriteU32_BE(unsigned char *ptr, const size_t offset, uint32_t value);
-__uint8_t WriteVariableLength(unsigned char *ptr, size_t offset, uint32_t value);
+uint8_t WriteVariableLength(void *dst, uint32_t value);
 __uint8_t VariableLength(uint32_t value);
 char *JoinPaths(char *parent, char *child);
 struct StrVec *StrVec_New(size_t capacity);

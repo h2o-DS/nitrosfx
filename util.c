@@ -84,79 +84,115 @@ unsigned char *ReadWholeFile(char *path, int *size)
 
 // TODO: change read and write functions to do either BE or LE based on an input parameter
 // Then give a little endian option to each file type
-uint8_t ReadU8(const unsigned char *ptr, const size_t offset) {
+uint8_t ReadU8(const unsigned char *ptr, const size_t offset)
+{
     return ptr[offset];
 }
 
-uint16_t ReadU16_BE(const unsigned char *ptr, const size_t offset) {
+uint16_t ReadU16_LE(const unsigned char *ptr, const size_t offset)
+{
     return (ptr[offset + 1] << 8) | ptr[offset];
 }
 
-uint16_t ReadU16_LE(const unsigned char *ptr, const size_t offset) {
+uint16_t ReadU16_BE(const unsigned char *ptr, const size_t offset)
+{
     return (ptr[offset] << 8) | ptr[offset + 1];
 }
 
-uint32_t ReadU24_BE(const unsigned char *ptr, const size_t offset) {
+uint32_t ReadU24_LE(const unsigned char *ptr, const size_t offset)
+{
     return (ptr[offset + 2] << 16) | (ptr[offset + 1] << 8) | ptr[offset];
 }
 
-uint32_t ReadU24_LE(const unsigned char *ptr, const size_t offset) {
+uint32_t ReadU24_BE(const unsigned char *ptr, const size_t offset)
+{
     return (ptr[offset] << 16) | (ptr[offset + 1] << 8) | ptr[offset + 2];
 }
 
-uint32_t ReadU32_BE(const unsigned char *ptr, const size_t offset) {
+uint32_t ReadU32_LE(const unsigned char *ptr, const size_t offset)
+{
     return (ptr[offset + 3] << 24) | (ptr[offset + 2] << 16) | (ptr[offset + 1] << 8) | ptr[offset];
 }
 
-uint32_t ReadU32_LE(const unsigned char *ptr, const size_t offset) {
+uint32_t ReadU32_BE(const unsigned char *ptr, const size_t offset)
+{
     return (ptr[offset] << 24) | (ptr[offset + 1] << 16) | (ptr[offset + 2] << 8) | ptr[offset + 3];
 }
 
-uint32_t ReadVariableLength(const unsigned char *ptr, size_t *offset) {
-    uint32_t val = ptr[*offset] & 0x7F;
-    while (ptr[*offset] & 0x80)
+uint32_t ReadVariableLength(const uint8_t *ptr, int *size)
+{
+    *size = 0;
+    uint32_t val = *ptr & 0x7F;
+    while (*(ptr + *size) & 0x80)
     {
-        (*offset)++;
-        val = (val << 7) + (ptr[*offset] & 0x7F);
+        *size += 1;
+        val = (val << 7) + (*(ptr + *size) & 0x7F);
     }
-    (*offset)++;
+    *size += 1;
     return val;
 }
 
-void WriteU8(unsigned char *ptr, const size_t offset, uint8_t value) {
+void WriteU8(unsigned char *ptr, const size_t offset, uint8_t value)
+{
     ptr[offset] = value;
 }
 
-void WriteU16_BE(unsigned char *ptr, const size_t offset, uint16_t value) {
+void WriteU16_LE(unsigned char *ptr, const size_t offset, uint16_t value)
+{
     ptr[offset] = value;
     ptr[offset + 1] = value >> 8;
 }
 
-void WriteU24_BE(unsigned char *ptr, const size_t offset, uint32_t value) {
+void WriteU16_BE(unsigned char *ptr, const size_t offset, uint16_t value)
+{
+    ptr[offset] = value >> 8;
+    ptr[offset + 1] = value;
+}
+
+void WriteU24_LE(unsigned char *ptr, const size_t offset, uint32_t value)
+{
     ptr[offset] = value;
     ptr[offset + 1] = value >> 8;
     ptr[offset + 2] = value >> 16;
 }
 
-void WriteU32_BE(unsigned char *ptr, const size_t offset, uint32_t value) {
+void WriteU24_BE(unsigned char *ptr, const size_t offset, uint32_t value)
+{
+    ptr[offset] = value >> 16;
+    ptr[offset + 1] = value >> 8;
+    ptr[offset + 2] = value;
+}
+
+void WriteU32_LE(unsigned char *ptr, const size_t offset, uint32_t value)
+{
     ptr[offset] = value;
     ptr[offset + 1] = value >> 8;
     ptr[offset + 2] = value >> 16;
     ptr[offset + 3] = value >> 24;
 }
 
-uint8_t WriteVariableLength(unsigned char *ptr, size_t offset, uint32_t value) {
+void WriteU32_BE(unsigned char *ptr, const size_t offset, uint32_t value)
+{
+    ptr[offset] = value >> 24;
+    ptr[offset + 1] = value >> 16;
+    ptr[offset + 2] = value >> 8;
+    ptr[offset + 3] = value;
+}
+
+uint8_t WriteVariableLength(void *dst, uint32_t value)
+{
+    uint8_t *ptr = dst;
     uint8_t size = 0;
     for (int i = 3; i > 0; i--)
     {
         if (value >> (7 * i))
         {
-            ptr[offset + size] = (value >> (7 * i)) & 0x7F;
-            ptr[offset + size] |= 0x80;
+            ptr[size] = (value >> (7 * i)) & 0x7F;
+            ptr[size] |= 0x80;
             size++;
         }
     }
-    ptr[offset + size] = value & 0x7F;
+    ptr[size] = value & 0x7F;
     size++;
     return size;
 }
@@ -211,9 +247,9 @@ void WriteNitroChunk(void *dst, char *fileType, uint32_t fileSize)
 {
     struct NitroChunk *nitroChunk = dst;
     memcpy(&nitroChunk->chunkID, fileType, 4);
-    WriteU16_BE((uint8_t*)&nitroChunk->magic1, 0, 0xFEFF);
-    WriteU16_BE((uint8_t*)&nitroChunk->magic2, 0, 0x0100);
-    WriteU32_BE((uint8_t*)&nitroChunk->fileSize, 0, fileSize);
-    WriteU16_BE((uint8_t*)&nitroChunk->size, 0, sizeof(struct NitroChunk));
-    WriteU16_BE((uint8_t*)&nitroChunk->magic3, 0, 0x0001);
+    WriteU16_LE((uint8_t*)&nitroChunk->magic1, 0, 0xFEFF);
+    WriteU16_LE((uint8_t*)&nitroChunk->magic2, 0, 0x0100);
+    WriteU32_LE((uint8_t*)&nitroChunk->fileSize, 0, fileSize);
+    WriteU16_LE((uint8_t*)&nitroChunk->size, 0, sizeof(struct NitroChunk));
+    WriteU16_LE((uint8_t*)&nitroChunk->magic3, 0, 0x0001);
 }
