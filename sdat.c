@@ -251,30 +251,18 @@ void ConvertPathToSdat(int argc, char **argv)
     char *outputPath = argv[2];
     char *orderPath = argv[3];
     bool symb = false;
-    int naix = 0;
+    bool naix = false;
 
     // optional args
     for (int i = 4; i < argc; i++)
     {
-        if (strcmp(argv[i], "-s") == 0)
+        if (strcmp(argv[i], "-symb") == 0)
         {
             symb = true;
         }
-        else if (strcmp(argv[i], "-n") == 0)
+        else if (strcmp(argv[i], "-naix") == 0)
         {
-            if (naix)
-            {
-                FATAL_ERROR("-n and -fn are mutually exclusive");
-            }
-            naix = 1;
-        }
-        else if (strcmp(argv[i], "-fn") == 0)
-        {
-            if (naix)
-            {
-                FATAL_ERROR("-n and -fn are mutually exclusive");
-            }
-            naix = 2;
+            naix = true;
         }
     }
 
@@ -700,7 +688,6 @@ void ConvertSdatToPath(int argc, char **argv)
     char *outputPath = argv[2];
     char *orderPath = argv[3];
 
-    
     // open input file
     uint32_t sdatSize;
     uint8_t *sdatFile = ReadWholeFile(inputPath, &sdatSize);

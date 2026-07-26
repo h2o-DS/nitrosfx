@@ -610,15 +610,15 @@ void ConvertWavToSwav(int argc, char **argv)
     uint8_t encodeType = SWAV_IMA_ADPCM;
     for (int i = 3; i < argc; i++)
     {
-        if (strcmp(argv[i], "--pcm8") == 0)
+        if (strcmp(argv[i], "-pcm8") == 0)
         {
             encodeType = SWAV_SIGNED_PCM8;
         }
-        else if (strcmp(argv[i], "--pcm16") == 0)
+        else if (strcmp(argv[i], "-pcm16") == 0)
         {
             encodeType = SWAV_SIGNED_PCM16;
         }
-        else if (strcmp(argv[i], "--adpcm") == 0)
+        else if (strcmp(argv[i], "-adpcm") == 0)
         {
             encodeType = SWAV_IMA_ADPCM;
         }
@@ -656,11 +656,11 @@ void ConvertSwavToWav(int argc, char **argv)
     bool pcm16 = true;
     for (int i = 3; i < argc; i++)
     {
-        if (strcmp(argv[i], "--pcm16") == 0)
+        if (strcmp(argv[i], "-pcm16") == 0)
         {
             pcm16 = true;
         }
-        else if (strcmp(argv[i], "--same") == 0)
+        else if (strcmp(argv[i], "-same") == 0)
         {
             pcm16 = false;
         }

@@ -131,9 +131,9 @@ void ConvertSwarToSwav(int argc, char **argv)
     int swavIndex = 0;
     for (int i = 3; i < argc; i++)
     {
-        if (strcmp(argv[i], "--index") == 0)
+        if (strcmp(argv[i], "-index") == 0)
         {
-            if (i + 1 >= argc) FATAL_ERROR("Usage: \"--index [#]\"\n");
+            if (i + 1 >= argc) FATAL_ERROR("Usage: \"-index #\"\n");
             if (!ParseNumber(argv[++i], NULL, 10, &swavIndex)) FATAL_ERROR("Failed to parse SWAV index.\n");
             if (swavIndex < 0) FATAL_ERROR("SWAV index must be non-negative\n");
         }
@@ -220,7 +220,7 @@ void ConvertPathToSwar(int argc, char **argv)
         else {
             /* handle a file */
             char *fileExtension = GetFileExtension(name);
-            if ((fileExtension != NULL) && (strcmp("swav", fileExtension) == 0)) // only collect swav files
+            if ((fileExtension != NULL) && ((strcmp("swav", fileExtension) == 0) || (strcmp("wav", fileExtension) == 0))) // only collect swav or wav files
             {
                 fileNames->s[fileNames->count++] = name;
             }
@@ -294,7 +294,13 @@ void ConvertPathToSwar(int argc, char **argv)
         uint8_t *swavFile = ReadWholeFile(sortedNames->s[i], &swavSize);
         if (memcmp(swavFile, "SWAV", 4) != 0)
         {
-            FATAL_ERROR("%s not a valid swav file\n", sortedNames->s[i]);
+            if ((memcmp(swavFile, "RIFF", 4) == 0) && (memcmp(swavFile + 8, "WAVE", 4) == 0))
+            {
+                uint8_t *newSwav = WavToSwav(swavFile, swavSize, &swavSize, SWAV_IMA_ADPCM);
+                free(swavFile);
+                swavFile = newSwav;
+            }
+            else FATAL_ERROR("%s not a valid swav or wav file\n", sortedNames->s[i]);
         }
         free(sortedNames->s[i]);
 
@@ -423,15 +429,15 @@ void ConvertWavToSwar(int argc, char **argv)
     uint8_t encodeType = SWAV_IMA_ADPCM;
     for (int i = 3; i < argc; i++)
     {
-        if (strcmp(argv[i], "--pcm8") == 0)
+        if (strcmp(argv[i], "-pcm8") == 0)
         {
             encodeType = SWAV_SIGNED_PCM8;
         }
-        else if (strcmp(argv[i], "--pcm16") == 0)
+        else if (strcmp(argv[i], "-pcm16") == 0)
         {
             encodeType = SWAV_SIGNED_PCM16;
         }
-        else if (strcmp(argv[i], "--adpcm") == 0)
+        else if (strcmp(argv[i], "-adpcm") == 0)
         {
             encodeType = SWAV_IMA_ADPCM;
         }
@@ -476,17 +482,17 @@ void ConvertSwarToWav(int argc, char **argv)
     bool pcm16 = true;
     for (int i = 3; i < argc; i++)
     {
-        if (strcmp(argv[i], "--index") == 0)
+        if (strcmp(argv[i], "-index") == 0)
         {
-            if (i + 1 >= argc) FATAL_ERROR("Usage: \"--index [#]\"\n");
+            if (i + 1 >= argc) FATAL_ERROR("Usage: \"-index #\"\n");
             if (!ParseNumber(argv[++i], NULL, 10, &swavIndex)) FATAL_ERROR("Failed to parse SWAV index.\n");
             if (swavIndex < 0) FATAL_ERROR("SWAV index must be non-negative\n");
         }
-        else if (strcmp(argv[i], "--pcm16") == 0)
+        else if (strcmp(argv[i], "-pcm16") == 0)
         {
             pcm16 = true;
         }
-        else if (strcmp(argv[i], "--same") == 0)
+        else if (strcmp(argv[i], "-same") == 0)
         {
             pcm16 = false;
         }

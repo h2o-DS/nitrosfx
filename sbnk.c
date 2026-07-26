@@ -432,7 +432,6 @@ void ConvertSbnkToTxt(int argc, char **argv)
         {
             end = instrumentStream[i + 1].address;
         }
-        free(instrumentStream);
 
         // read data depending upon instrument type
         if (instrumentType < INSTRUMENT_ZEROED)
@@ -504,6 +503,7 @@ void ConvertSbnkToTxt(int argc, char **argv)
         }
     }
 
+    free(instrumentStream);
     free(sbnkFile);
     fclose(outFile);
 }
