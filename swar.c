@@ -106,8 +106,17 @@ void ConvertSwavToSwar(int argc, char **argv)
     char *inputPath = argv[1];
     char *outputPath = argv[2];
 
+    // optional args
+    for (int i = 3; i < argc; i++)
+    {
+        FATAL_ERROR("Unrecognized argument: \"%s\"\n", argv[i]);
+    }
+
     uint32_t swavSize;
     uint8_t *swav = ReadWholeFile(inputPath, &swavSize);
+    if (swavSize < (sizeof(struct NitroChunk) + sizeof(struct SwavChunk_DATA))) FATAL_ERROR("File %s is not a valid swav file\n", inputPath);
+    if (memcmp(swav, "SWAV", 4) != 0) FATAL_ERROR("File %s is not a valid swav file\n", inputPath);
+
     struct DataPackage *swarPackage = InitSwarPackage();
     PackSwav(swarPackage, swav, swavSize);
 
@@ -146,7 +155,9 @@ void ConvertSwarToSwav(int argc, char **argv)
     // open input file
     uint32_t swarSize;
     uint8_t *swar = ReadWholeFile(inputPath, &swarSize);
-    if (memcmp(swar, "SWAR", 4) != 0) FATAL_ERROR("%s is not a valid SWAR file.\n", inputPath);
+    if (swarSize < (sizeof(struct NitroChunk) + sizeof(struct SwarChunk_DATA))) FATAL_ERROR("File %s is not a valid swar file\n", inputPath);
+    if (memcmp(swar, "SWAR", 4) != 0) FATAL_ERROR("File %s is not a valid swar file\n", inputPath);
+
     struct SwarChunk_DATA *swarData = (struct SwarChunk_DATA*)SWAR_DATA_ADDRESS(swar);
     uint32_t numSwavs = ReadU32_LE(&swarData->count);
 
@@ -181,7 +192,7 @@ void ConvertSwarToSwav(int argc, char **argv)
 // TODO:
 // - make dir travel a function so it can be made recursive for subfolders
 // - add naix functionality
-// - - will require more robus input parsing
+// - - will require more robust input parsing
 void ConvertPathToSwar(int argc, char **argv)
 {
     char *orderPath = NULL;
@@ -194,9 +205,7 @@ void ConvertPathToSwar(int argc, char **argv)
     bool naix = false;
 
     DIR *dir = opendir(inputPath);
-    if (dir == NULL) {
-        FATAL_ERROR("could not open DIRECTORY “%s”: %s\n", inputPath, strerror(errno));
-    }
+    if (dir == NULL) FATAL_ERROR("could not open DIRECTORY “%s”: %s\n", inputPath, strerror(errno));
 
     // collect file names
     struct StrVec *fileNames = StrVec_New(5000); // arbitary allocation
@@ -207,10 +216,7 @@ void ConvertPathToSwar(int argc, char **argv)
 
         char *name = JoinPaths(inputPath, ent->d_name);
         struct stat stbuf = { 0 };
-        if (stat(name, &stbuf) == -1)
-        {
-            FATAL_ERROR("could not access FILE “%s”: %s\n", name, strerror(errno));
-        }
+        if (stat(name, &stbuf) == -1) FATAL_ERROR("could not access FILE “%s”: %s\n", name, strerror(errno));
 
         if (S_ISDIR(stbuf.st_mode))
         {
@@ -331,7 +337,9 @@ void ConvertSwarToPath(int argc, char **argv)
     // open input file
     uint32_t swarSize;
     uint8_t *swar = ReadWholeFile(inputPath, &swarSize);
-    if (memcmp(swar, "SWAR", 4) != 0) FATAL_ERROR("%s is not a valid SWAR file.\n", inputPath);
+    if (swarSize < (sizeof(struct NitroChunk) + sizeof(struct SwarChunk_DATA))) FATAL_ERROR("File %s is not a valid swar file\n", inputPath);
+    if (memcmp(swar, "SWAR", 4) != 0) FATAL_ERROR("File %s is not a valid swar file\n", inputPath);
+
     struct SwarChunk_DATA *swarData = (struct SwarChunk_DATA*)(swar + sizeof(struct NitroChunk));
     uint32_t numSwavs = ReadU32_LE(&swarData->count);
 
@@ -450,6 +458,7 @@ void ConvertWavToSwar(int argc, char **argv)
     // pack swav file
     uint32_t wavSize;
     uint8_t *wav = ReadWholeFile(inputPath, &wavSize);
+    if (wavSize < (sizeof(struct WavChunk_RIFF) + sizeof(struct WavChunk_fmt) + sizeof(struct WavChunk_data))) FATAL_ERROR("File %s is not a valid wav file\n", inputPath);
     struct WavChunk_RIFF *riff = (struct WavChunk_RIFF*)wav;
     if (memcmp(&riff->chunkID, "RIFF", 4) != 0) FATAL_ERROR("%s is not a RIFF file.\n", inputPath);
     if (memcmp(&riff->formType, "WAVE", 4) != 0) FATAL_ERROR("%s does not have WAVE form type.\n", inputPath);
@@ -505,7 +514,9 @@ void ConvertSwarToWav(int argc, char **argv)
     // open input file
     uint32_t swarSize;
     uint8_t *swar = ReadWholeFile(inputPath, &swarSize);
-    if (memcmp(swar, "SWAR", 4) != 0) FATAL_ERROR("%s is not a valid SWAR file.\n", inputPath);
+    if (swarSize < (sizeof(struct NitroChunk) + sizeof(struct SwarChunk_DATA))) FATAL_ERROR("File %s is not a valid swar file\n", inputPath);
+    if (memcmp(swar, "SWAR", 4) != 0) FATAL_ERROR("File %s is not a valid swar file\n", inputPath);
+
     struct SwarChunk_DATA *swarData = (struct SwarChunk_DATA*)SWAR_DATA_ADDRESS(swar);
     uint32_t numSwavs = ReadU32_LE(&swarData->count);
 

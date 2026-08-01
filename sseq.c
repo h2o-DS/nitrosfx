@@ -1267,12 +1267,9 @@ static bool IsCommand(struct Event *event, uint8_t command)
 
 uint8_t *MidiToSseq(uint8_t *midi, uint32_t midiSize, uint32_t *sseqSize)
 {
-    if (midi == NULL) FATAL_ERROR("error reading midi\n");
-    if (sseqSize == NULL) FATAL_ERROR("error reading sseqSize\n");
     *sseqSize = sizeof(struct NitroChunk) + sizeof(struct SseqChunk_DATA);
 
     struct MidiChunk_MThd *mthd = (struct MidiChunk_MThd*)midi;
-    if (memcmp(&mthd->chunkID, "MThd", 4) != 0) FATAL_ERROR("Not a valid MIDI file.\n");
     uint16_t midiFormat = ReadU16_BE(&mthd->format);
     uint16_t nTracks = ReadU16_BE(&mthd->nTracks);
 
@@ -1956,6 +1953,9 @@ void ConvertMidiToSseq(int argc, char **argv)
 
     uint32_t midiSize;
     uint8_t *midi = ReadWholeFile(inputPath, &midiSize);
+    if (midiSize < sizeof(struct MidiChunk_MThd)) FATAL_ERROR("File %s is not a valid MIDI file\n", inputPath);
+    struct MidiChunk_MThd *mthd = (struct MidiChunk_MThd*)midi;
+    if (memcmp(&mthd->chunkID, "MThd", 4) != 0) FATAL_ERROR("File %s is not a valid MIDI file\n", inputPath);
 
     uint32_t sseqSize;
     uint8_t *sseq = MidiToSseq(midi, midiSize, &sseqSize);
@@ -1982,6 +1982,8 @@ void ConvertSseqToMidi(int argc, char **argv)
 
     uint32_t sseqSize;
     uint8_t *sseq = ReadWholeFile(inputPath, &sseqSize);
+    if (sseqSize < (sizeof(struct NitroChunk) + sizeof(struct SseqChunk_DATA))) FATAL_ERROR("File %s is not a valid sseq file\n", inputPath);
+    if (memcmp(sseq, "SSEQ", 4) != 0) FATAL_ERROR("File %s is not a valid sseq file\n", inputPath);
 
     uint32_t midiSize;
     uint8_t *midi = SseqToMidi(sseq, sseqSize, &midiSize);

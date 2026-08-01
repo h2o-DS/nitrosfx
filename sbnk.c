@@ -45,9 +45,18 @@ const char *instrumentsTypeStrings[] = {
 };
 const char *sameAddressString = "SameAsAbove";
 
+struct SbnkChunk_DATA
+{
+    uint32_t chunkID;
+    uint32_t size;
+    uint32_t padding[8];
+    uint32_t count;
+    //uint8_t *instruments;
+};
+
 struct InstrumentStream {
     struct InstrumentStream *next;
-    unsigned char *data;
+    uint8_t *data;
     uint32_t size;
     uint8_t instrumentsType;
     uint16_t headerIndex;
@@ -61,7 +70,20 @@ struct SbnkPackage {
     uint32_t size;
 };
 
-static void PackSbnkFile(struct SbnkPackage *sbnkPackage, unsigned char *data, const uint32_t size, uint8_t instrumentsType, uint16_t headerIndex)
+int InstrumentAddressCmp_q(const void *i1, const void *i2)
+{
+    const struct InstrumentStream *a = (struct InstrumentStream*)i1;
+    const struct InstrumentStream *b = (struct InstrumentStream*)i2;
+    int diff = (a->address > b->address) - (a->address < b->address);
+    if (diff == 0)
+    {
+        // maintain order of null and shared pointers
+        diff = (a->headerIndex > b->headerIndex) - (a->headerIndex < b->headerIndex);
+    }
+    return diff;
+}
+
+static void PackSbnkFile(struct SbnkPackage *sbnkPackage, uint8_t *data, const uint32_t size, uint8_t instrumentsType, uint16_t headerIndex)
 {
     struct InstrumentStream *instrument = malloc(sizeof(struct InstrumentStream));
     instrument->next = NULL;
@@ -85,28 +107,16 @@ static void PackSbnkFile(struct SbnkPackage *sbnkPackage, unsigned char *data, c
     sbnkPackage->count++;
 }
 
-void ConvertTxtToSbnk(int argc, char **argv)
+uint8_t *TxtToSbnk(FILE *txt, uint32_t *sbnkSize)
 {
-    if (argc < 3)
-    {
-        FATAL_ERROR("Insufficient arguments\n");
-    }
-    char *inputPath = argv[1];
-    char *outputPath = argv[2];
-
-    // open input file
-    char line[1024];
-    FILE *txtFile = fopen(inputPath,"r");
-    if (txtFile == NULL) {
-        FATAL_ERROR("Could not open INPUT FILE “%s”: %s\n", inputPath, strerror(errno));
-    }
     struct SbnkPackage *sbnkPackage = calloc(1, sizeof(struct DataPackage));
     const char delimiter[3] = ", ";
+    char line[1024];
     char *s;
-    unsigned char *instrumentData;
+    uint8_t *instrumentData;
     uint8_t instrumentType = INSTRUMENT_NULL;
     uint16_t headerIndex = 0;
-    while (fgets(line, 1024, txtFile))
+    while (fgets(line, 1024, txt))
     {
         // ignore comments
         line[strcspn(line, ";")] = 0;
@@ -258,37 +268,28 @@ void ConvertTxtToSbnk(int argc, char **argv)
             }
         }
     }
-    fclose(txtFile);
 
     // add header and index table size
-    uint32_t headerSize = 0x3C + sbnkPackage->count * 0x04;
-    sbnkPackage->size += headerSize;
+    uint32_t headerSize = sizeof(struct NitroChunk) + sizeof(struct SbnkChunk_DATA) + sbnkPackage->count * 0x04;
+    *sbnkSize = sbnkPackage->size + headerSize;
 
     // pad to 0x04 byte alignment
-    int pad = (4 - sbnkPackage->size) % 4;
-    sbnkPackage->size += pad;
+    int pad = (4 - *sbnkSize) % 4;
+    *sbnkSize += pad;
 
-    // write header
-    unsigned char sbnkHeader[0x3C] =
-    {
-        'S',  'B',  'N',  'K',  0xFF, 0xFE, 0x00, 0x01,  0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x01, 0x00,
-        'D',  'A',  'T',  'A',  0x00, 0x00, 0x00, 0x00,  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0x00, 0x00, 0x00, 0x00
-    };
-    WriteU32_LE(sbnkHeader + 0x08, sbnkPackage->size); // file size
-    WriteU32_LE(sbnkHeader + 0x14, sbnkPackage->size - 0x10); // data size
-    WriteU32_LE(sbnkHeader + 0x38, sbnkPackage->count); // number of instruments
+    // write sbnk
+    uint8_t *sbnk = malloc(*sbnkSize);
 
-    FILE *outFile = fopen(outputPath, "wb");
-    if (outFile == NULL)
-        FATAL_ERROR("Failed to open \"%s\" for writing.\n", outputPath);
-    fwrite(sbnkHeader, 1, 0x3C, outFile);
+    WriteNitroChunk(sbnk, "SBNK", *sbnkSize);
+    struct SbnkChunk_DATA *sbnkData = (struct SbnkChunk_DATA*)(sbnk + sizeof(struct NitroChunk));
+    memcpy(&sbnkData->chunkID, "DATA", 4);
+    WriteU32_LE(&sbnkData->size, *sbnkSize - sizeof(struct NitroChunk));
+    for (int i = 0; i < 8; i++) sbnkData->padding[i] = 0;
+    WriteU32_LE(&sbnkData->count, sbnkPackage->count); // number of instruments
+    uint8_t *sbnkPos = (uint8_t*)sbnkData + sizeof(struct SbnkChunk_DATA);
 
     // write indexing table
     struct InstrumentStream *bnk;
-    unsigned char zeroPointer[4] = {0, 0, 0, 0};
-    unsigned char absolutePointer[4] = {0, 0, 0, 0};
     for (int i = 0; i < sbnkPackage->count; i++)
     {
         bnk = sbnkPackage->head;
@@ -298,18 +299,23 @@ void ConvertTxtToSbnk(int argc, char **argv)
         }
         if (bnk->instrumentsType == INSTRUMENT_NULL) // check for NULL
         {
-            fwrite(zeroPointer, 1, 4, outFile);
+            WriteU32_LE(sbnkPos, 0);
+            sbnkPos += 4;
             bnk = bnk->next;
         }
         else
         {
-            absolutePointer[0] = bnk->instrumentsType;
-            WriteU16_LE(absolutePointer + 1, headerSize + bnk->address);
-            fwrite(absolutePointer, 1, 4, outFile);
+            *sbnkPos++ = bnk->instrumentsType;
+            WriteU16_LE(sbnkPos, headerSize + bnk->address);
+            sbnkPos += 2;
+            *sbnkPos++ = 0;
             bnk = bnk->next;
             while ((bnk != NULL) && (bnk->size == 0)) // check for "same as above"
             {
-                fwrite(absolutePointer, 1, 4, outFile);
+                *sbnkPos++ = bnk->instrumentsType;
+                WriteU16_LE(sbnkPos, headerSize + bnk->address);
+                sbnkPos += 2;
+                *sbnkPos++ = 0;
                 bnk = bnk->next;
                 i++;
             }
@@ -323,7 +329,8 @@ void ConvertTxtToSbnk(int argc, char **argv)
     {
         if (bnk->data != NULL)
         {
-            fwrite(bnk->data, 1, bnk->size, outFile);
+            memcpy(sbnkPos, bnk->data, bnk->size);
+            sbnkPos += bnk->size;
             free(bnk->data);
         }
         bnkF = bnk;
@@ -331,66 +338,31 @@ void ConvertTxtToSbnk(int argc, char **argv)
         free(bnkF);
     }
 
-    if (pad)
-    {
-        unsigned char *padding = calloc(1, pad);
-        fwrite(padding, 1, pad, outFile);
-        free(padding);
-    }
-
+    for (int i = 0; i < pad; i++) *sbnkPos++ = 0;
     free(sbnkPackage);
-    fclose(outFile);
+
+    return sbnk;
 }
 
-int InstrumentAddressCmp_q(const void *i1, const void *i2)
+void SbnkToTxt(uint8_t *sbnk, uint32_t sbnkSize, FILE *txt)
 {
-    const struct InstrumentStream *a = (struct InstrumentStream*)i1;
-    const struct InstrumentStream *b = (struct InstrumentStream*)i2;
-    int diff = (a->address > b->address) - (a->address < b->address);
-    if (diff == 0)
-    {
-        // maintain order of null and shared pointers
-        diff = (a->headerIndex > b->headerIndex) - (a->headerIndex < b->headerIndex);
-    }
-    return diff;
-}
-
-void ConvertSbnkToTxt(int argc, char **argv)
-{
-    if (argc < 3)
-    {
-        FATAL_ERROR("Insufficient arguments\n");
-    }
-    char *inputPath = argv[1];
-    char *outputPath = argv[2];
-
-    // open input file
-    uint32_t sbnkSize;
-    uint8_t *sbnkFile = ReadWholeFile(inputPath, &sbnkSize);
-    if (memcmp(sbnkFile, "SBNK", 4) != 0)
-    {
-        FATAL_ERROR("Not a valid sbnk file.\n");
-    }
-    uint32_t numInstruments = ReadU32_LE(sbnkFile + 0x38);
+    struct SbnkChunk_DATA *sbnkData = (struct SbnkChunk_DATA*)(sbnk + sizeof(struct NitroChunk));
+    uint32_t numInstruments = ReadU32_LE(&sbnkData->count);
+    uint8_t *sbnkPos = sbnk + sizeof(struct NitroChunk) + sizeof(struct SbnkChunk_DATA);
 
     // collect data elements
     struct InstrumentStream *instrumentStream = malloc(sizeof(struct InstrumentStream) * numInstruments);
     for (int i = 0; i < numInstruments; i++)
     {
         instrumentStream[i].headerIndex = i;
-        instrumentStream[i].instrumentsType = sbnkFile[0x3C + i * 4];
-        instrumentStream[i].address = ReadU16_LE(sbnkFile + (0x3D + i * 4));
+        instrumentStream[i].instrumentsType = *sbnkPos++;
+        instrumentStream[i].address = ReadU16_LE(sbnkPos);
+        sbnkPos += 3;
     }
 
     // sort by addresses
     qsort(instrumentStream, numInstruments, sizeof(struct InstrumentStream), InstrumentAddressCmp_q);
 
-    // Write to file
-    FILE *outFile = fopen(outputPath, "wb");
-    if (outFile == NULL)
-    {
-        FATAL_ERROR("Failed to open \"%s\" for writing.\n", outputPath);
-    }
 
     // write data stream
     uint16_t lastAddress = 0;
@@ -399,111 +371,140 @@ void ConvertSbnkToTxt(int argc, char **argv)
         uint8_t headerIndex = instrumentStream[i].headerIndex;
         uint16_t address = instrumentStream[i].address;
         uint8_t instrumentType = instrumentStream[i].instrumentsType;
-        char *line = NULL;
 
         // check for NULL
         if (instrumentType == INSTRUMENT_NULL)
         {
-            line = malloc(12);
-            snprintf(line, 12, "%d, %s\r\n", headerIndex, instrumentsTypeStrings[INSTRUMENT_NULL]);
-            fprintf(outFile, line);
-            free(line);
+            fprintf(txt, "%d, %s\r\n", headerIndex, instrumentsTypeStrings[INSTRUMENT_NULL]);
             continue;
         }
 
         // check for reused address
         if (address == lastAddress)
         {
-            line = malloc(19);
-            snprintf(line, 19, "%d, %s\r\n", headerIndex, sameAddressString);
-            fprintf(outFile, line);
-            free(line);
+            fprintf(txt, "%d, %s\r\n", headerIndex, sameAddressString);
             continue;
         }
         lastAddress = address;
 
         // print standard types
-        int end = 0;
-        if (i == numInstruments - 1)
-        {
-            end = sbnkSize - 4; // subtract 4 to account for potential padding
-        }
-        else
-        {
-            end = instrumentStream[i + 1].address;
-        }
+        uint8_t *end = (i == numInstruments - 1) ? sbnk + sbnkSize - 4 : sbnk + instrumentStream[i + 1].address; // subtract 4 to account for potential padding
 
         // read data depending upon instrument type
+        sbnkPos = sbnk + address;
         if (instrumentType < INSTRUMENT_ZEROED)
         {
-            line = malloc(58);
-            snprintf(line, 58, "%d, %s, %d, %d, %d, %d, %d, %d, %d, %d\r\n",
+            fprintf(txt, "%d, %s, %d, %d, %d, %d, %d, %d, %d, %d\r\n",
                 headerIndex,
                 instrumentsTypeStrings[instrumentType],
-                ReadU16_LE(sbnkFile + address),
-                ReadU16_LE(sbnkFile + address + 2),
-                sbnkFile[address + 4],
-                sbnkFile[address + 5],
-                sbnkFile[address + 6],
-                sbnkFile[address + 7],
-                sbnkFile[address + 8],
-                sbnkFile[address + 9]);
-            address += 10;
+                ReadU16_LE(sbnkPos),
+                ReadU16_LE(sbnkPos + 2),
+                sbnkPos[4],
+                sbnkPos[5],
+                sbnkPos[6],
+                sbnkPos[7],
+                sbnkPos[8],
+                sbnkPos[9]);
+            sbnkPos += 10;
         }
         else if (instrumentType == INSTRUMENT_DRUMS)
         {
-            line = malloc(23);
-            snprintf(line, 23, "%d, %s, %d, %d\r\n",
+            fprintf(txt, "%d, %s, %d, %d\r\n",
                 headerIndex,
                 instrumentsTypeStrings[instrumentType],
-                sbnkFile[address],
-                sbnkFile[address + 1]);
-            address += 2;
+                sbnkPos[0],
+                sbnkPos[1]);
+            sbnkPos += 2;
         }
         else if (instrumentType == INSTRUMENT_KEYSPLIT)
         {
-            line = malloc(56);
-            snprintf(line, 56, "%d, %s, %d, %d, %d, %d, %d, %d, %d, %d\r\n",
+            fprintf(txt, "%d, %s, %d, %d, %d, %d, %d, %d, %d, %d\r\n",
                 headerIndex,
                 instrumentsTypeStrings[instrumentType],
-                sbnkFile[address],
-                sbnkFile[address + 1],
-                sbnkFile[address + 2],
-                sbnkFile[address + 3],
-                sbnkFile[address + 4],
-                sbnkFile[address + 5],
-                sbnkFile[address + 6],
-                sbnkFile[address + 7]);
-            address += 8;
+                sbnkPos[0],
+                sbnkPos[1],
+                sbnkPos[2],
+                sbnkPos[3],
+                sbnkPos[4],
+                sbnkPos[5],
+                sbnkPos[6],
+                sbnkPos[7]);
+            sbnkPos += 8;
         }
         else
         {
             FATAL_ERROR("Unrecognized intrument type %d\n", instrumentType);
         }
-        fprintf(outFile, line);
-        free(line);
 
         // check for extra lines
-        while (address < end)
+        while (sbnkPos < end)
         {
-            line = malloc(53);
-            snprintf(line, 53, "\t%d, %d, %d, %d, %d, %d, %d, %d, %d\r\n",
-                ReadU16_LE(sbnkFile + address),
-                ReadU16_LE(sbnkFile + address + 2),
-                ReadU16_LE(sbnkFile + address + 4),
-                sbnkFile[address + 6],
-                sbnkFile[address + 7],
-                sbnkFile[address + 8],
-                sbnkFile[address + 9],
-                sbnkFile[address + 10],
-                sbnkFile[address + 11]);
-            address += 12;
-            fprintf(outFile, line);
-            free(line);
+            fprintf(txt, "\t%d, %d, %d, %d, %d, %d, %d, %d, %d\r\n",
+                ReadU16_LE(sbnkPos),
+                ReadU16_LE(sbnkPos + 2),
+                ReadU16_LE(sbnkPos + 4),
+                sbnkPos[6],
+                sbnkPos[7],
+                sbnkPos[8],
+                sbnkPos[9],
+                sbnkPos[10],
+                sbnkPos[11]);
+            sbnkPos += 12;
         }
     }
 
     free(instrumentStream);
-    free(sbnkFile);
+}
+
+void ConvertTxtToSbnk(int argc, char **argv)
+{
+    if (argc < 3) FATAL_ERROR("Insufficient arguments\n");
+    char *inputPath = argv[1];
+    char *outputPath = argv[2];
+
+    // optional args
+    for (int i = 3; i < argc; i++)
+    {
+        FATAL_ERROR("Unrecognized argument: \"%s\"\n", argv[i]);
+    }
+
+    // open input file
+    FILE *txtFile = fopen(inputPath,"r");
+    if (txtFile == NULL) FATAL_ERROR("Could not open INPUT FILE “%s”: %s\n", inputPath, strerror(errno));
+
+    uint32_t sbnkSize;
+    uint8_t *sbnk = TxtToSbnk(txtFile, &sbnkSize);
+    fclose(txtFile);
+
+    FILE *outFile = fopen(outputPath, "wb");
+    if (outFile == NULL) FATAL_ERROR("Failed to open \"%s\" for writing.\n", outputPath);
+    fwrite(sbnk, 1, sbnkSize, outFile);
+    free(sbnk);
+    fclose(outFile);
+}
+
+void ConvertSbnkToTxt(int argc, char **argv)
+{
+    if (argc < 3) FATAL_ERROR("Insufficient arguments\n");
+    char *inputPath = argv[1];
+    char *outputPath = argv[2];
+
+    // optional args
+    for (int i = 3; i < argc; i++)
+    {
+        FATAL_ERROR("Unrecognized argument: \"%s\"\n", argv[i]);
+    }
+
+    // open input file
+    uint32_t sbnkSize;
+    uint8_t *sbnk = ReadWholeFile(inputPath, &sbnkSize);
+    if (sbnkSize < (sizeof(struct NitroChunk) + sizeof(struct SbnkChunk_DATA))) FATAL_ERROR("File %s is not a valid sbnk file\n", inputPath);
+    if (memcmp(sbnk, "SBNK", 4) != 0) FATAL_ERROR("File %s is not a valid sbnk file\n", inputPath);
+
+    // Write to file
+    FILE *outFile = fopen(outputPath, "wb");
+    if (outFile == NULL) FATAL_ERROR("Failed to open \"%s\" for writing.\n", outputPath);
+    SbnkToTxt(sbnk, sbnkSize, outFile);
+    free(sbnk);
     fclose(outFile);
 }

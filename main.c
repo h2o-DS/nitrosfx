@@ -12,7 +12,7 @@ struct CommandHandler
     void(*function)(int argc, char **argv);
 };
 
-static const char* const main_help =
+static const char *const main_help =
 "Usage: nitrosfx INPUT_PATH OUTPUT_PATH [options...]\n"
 "\n"
 "Help options:\n"
@@ -23,19 +23,19 @@ static const char* const main_help =
 "\t\"-h-swar\"\tSWAR conversion help text\n"
 "\t\"-h-sdat\"\tSDAT conversion help text\n";
 
-static const char* const sseq_help =
+static const char *const sseq_help =
 "Usage: nitrosfx INPUT_PATH OUTPUT_PATH\n"
 "\n"
 "Files are identified by file extension\n"
-"Possible extenisons:\n"
+"Possible extensions:\n"
 "\tsseq\t->\tmid\n"
 "\tmid\t->\tsseq\n";
 
-static const char* const swav_help =
+static const char *const swav_help =
 "Usage: nitrosfx INPUT_PATH OUTPUT_PATH [options...]\n"
 "\n"
 "Input and Output file types are identified by file extension\n"
-"Possible extenisons:\n"
+"Possible extensions:\n"
 "\tswav\t->\twav\t[-pcm16 (default), -same]\n"
 "\twav\t->\tswav\t[-adpcm (default), -pcm8, -pcm16]\n"
 "\tswav\t->\tswar\n"
@@ -47,19 +47,19 @@ static const char* const swav_help =
 "\t-pcm16\t\t16-bit PCM encoding\n"
 "\t-index #\tExtracts wave of index #\n";
 
-static const char* const sbnk_help =
+static const char *const sbnk_help =
 "Usage: nitrosfx INPUT_PATH OUTPUT_PATH\n"
 "\n"
 "Files are identified by file extension\n"
-"Possible extenisons:\n"
+"Possible extensions:\n"
 "\tsbnk\t->\ttxt\n"
 "\ttxt\t->\tsbnk\n";
 
-static const char* const swar_help =
+static const char *const swar_help =
 "Usage: nitrosfx INPUT_PATH OUTPUT_PATH [options...]\n"
 "\n"
 "Input and Output file types are identified by file extension\n"
-"Possible extenisons:\n"
+"Possible extensions:\n"
 "\tswar\t->\tswav\t[-index # (default=0)]\n"
 "\tswav\t->\tswar\n"
 "\tswar\t->\twav\t[-index # (default=0), -pcm16 (default), -same]\n"
@@ -77,12 +77,11 @@ static const char* const swar_help =
 "\t-order PATH\tOrder input files based upon file name specified in a txt file\n"
 "\t\t\tUnnamed files will be sorted alphabetically\n";
 
-static const char* const sdat_help =
+static const char *const sdat_help =
 "Usage: nitrosfx INPUT_PATH OUTPUT_PATH JSON_PATH [options...]\n"
 "\n"
 "Input and Output file types are identified by file extension\n"
-"See docs/sdat.md for json file information\n"
-"Possible extenisons:\n"
+"Possible extensions:\n"
 "\tsdat\t\t->\t[dir] + json\t[-nitro (default), -edit, -nedit]\n"
 "\t[dir] + json\t->\tsdat\t\t[-symb, -naix NAIX_PATH]\n"
 "Options:\n"
@@ -151,9 +150,9 @@ int main(int argc, char **argv)
     char *inputFileExtension = GetFileExtension(inputPath);
     char *outputFileExtension = GetFileExtension(outputPath);
 
-    if (inputFileExtension == NULL) FATAL_ERROR("Input file \"%s\" has no extension.\n", inputPath);
-
-    if (outputFileExtension == NULL) FATAL_ERROR("Output file \"%s\" has no extension.\n", outputPath);
+    // single-depth directories will not have extensions
+    if (inputFileExtension == NULL) inputFileExtension = "/";
+    if (outputFileExtension == NULL) outputFileExtension = "/";
 
     for (int i = 0; handlers[i].function != NULL; i++)
     {

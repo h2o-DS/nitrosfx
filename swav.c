@@ -7,25 +7,6 @@
 #define WAVE_CODEC_PCM       0x0001
 #define WAVE_CODEC_IMA_ADPCM 0x0011
 
-struct WavChunk_fmt
-{
-    uint32_t chunkID;
-    uint32_t size;              // Does not include chunkID, size, or any padding
-    uint16_t wFormatTag;        // Format category
-    uint16_t wChannels;         // Number of channels
-    uint32_t dwSamplesPerSec;   // Sampling rate
-    uint32_t dwAvgBytesPerSec;  // For buffer estimation
-    uint16_t wBlockAlign;       // Data block size
-    uint16_t wBitsPerSample;    // Sample size
-};
-
-struct WavChunk_data
-{
-    uint32_t chunkID;
-    uint32_t size;              // Does not include chunkID, size, or any padding
-    //uint8_t *audio;
-};
-
 struct Wav_SampleLoop
 {
     uint32_t id;
@@ -50,19 +31,6 @@ struct WavChunk_smpl
     uint32_t numLoops;
     uint32_t sampleData;
     //struct Wav_SampleLoop *sampleLoop;
-};
-
-struct SwavChunk_DATA
-{
-    uint32_t chunkID;
-    uint32_t size;
-    enum SWAV_ENCODE encodeType;
-    uint8_t loop;
-    uint16_t samplingRate;
-    uint16_t clockTime;
-    uint16_t loopStart;
-    uint32_t loopSize;
-    //uint8_t *audio;
 };
 
 static const int IMA_INDEX_TABLE[16] =
@@ -630,6 +598,7 @@ void ConvertWavToSwav(int argc, char **argv)
 
     uint32_t wavSize;
     uint8_t *wav = ReadWholeFile(inputPath, &wavSize);
+    if (wavSize < (sizeof(struct WavChunk_RIFF) + sizeof(struct WavChunk_fmt) + sizeof(struct WavChunk_data))) FATAL_ERROR("File %s is not a valid wav file\n", inputPath);
     struct WavChunk_RIFF *riff = (struct WavChunk_RIFF*)wav;
     if (memcmp(&riff->chunkID, "RIFF", 4) != 0) FATAL_ERROR("%s is not a RIFF file.\n", inputPath);
     if (memcmp(&riff->formType, "WAVE", 4) != 0) FATAL_ERROR("%s does not have WAVE form type.\n", inputPath);
@@ -672,7 +641,8 @@ void ConvertSwavToWav(int argc, char **argv)
 
     uint32_t swavSize;
     uint8_t *swav = ReadWholeFile(inputPath, &swavSize);
-    if (memcmp(swav, "SWAV", 4) != 0) FATAL_ERROR("%s is not a valid swav file.\n", inputPath);
+    if (swavSize < (sizeof(struct NitroChunk) + sizeof(struct SwavChunk_DATA))) FATAL_ERROR("File %s is not a valid swav file\n", inputPath);
+    if (memcmp(swav, "SWAV", 4) != 0) FATAL_ERROR("File %s is not a valid swav file\n", inputPath);
 
     uint32_t wavSize;
     uint8_t *wav = SwavToWav(swav, swavSize, &wavSize, pcm16);
